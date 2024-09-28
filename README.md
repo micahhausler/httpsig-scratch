@@ -10,6 +10,10 @@ I'm starting with https://github.com/common-fate/httpsig but want to also try so
 Tasks:
 - [x] Run example client and server
 - [x] Get server to support multiple algorithms
+- [ ] GitHub key database
+  - [x] Create KeyDirectory backed by GitHub usernames
+  - [x] Integrate KeyDirectory into server
+  - [ ] Get client signer to sign with SSH RSA or ECDSA Key
 - [ ] Impose specific signature base from the server
 - [ ] Define a signature input format for the client, including algo.
 
