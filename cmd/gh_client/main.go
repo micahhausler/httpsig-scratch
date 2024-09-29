@@ -12,6 +12,13 @@ import (
 	"github.com/micahhausler/httpsig-scratch/gh"
 )
 
+func init() {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
+	slog.SetDefault(logger)
+}
+
 func main() {
 	keyFile := flag.String("key", "", "path to private key")
 	host := flag.String("host", "localhost", "host to connect to")

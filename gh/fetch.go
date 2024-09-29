@@ -2,6 +2,7 @@ package gh
 
 import (
 	"bytes"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -28,12 +29,13 @@ func newGhClient() *ghClient {
 // getUserKeys fetches the public keys for a given GitHub user
 func (c *ghClient) getUserKeys(username string) ([][]byte, error) {
 	// TODO: input sanitization
-	uri := "https://api.github.com/users/" + username + ".keys"
+	uri := "https://github.com/" + username + ".keys"
 
 	ghResp, err := c.cli.Get(uri)
 	if err != nil {
 		return nil, err
 	}
+
 	defer ghResp.Body.Close()
 
 	buf := bytes.Buffer{}
@@ -41,5 +43,11 @@ func (c *ghClient) getUserKeys(username string) ([][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if ghResp.StatusCode != http.StatusOK {
+		slog.Error("failed to fetch keys", "status", ghResp.Status, "response", string(buf.Bytes()))
+		return nil, fmt.Errorf("failed to fetch keys: %s", ghResp.Status)
+	}
+
 	return bytes.Split(buf.Bytes(), []byte("\n")), nil
 }

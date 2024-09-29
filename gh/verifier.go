@@ -2,6 +2,7 @@ package gh
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/common-fate/httpsig"
 	"github.com/common-fate/httpsig/contentdigest"
@@ -15,7 +16,14 @@ type ghAlgo struct {
 
 var _ verifier.Algorithm = &ghAlgo{}
 
+// TODO: Type() is called before Verify(), so we don't know the valid algo.
+// We probably can simplify this to just be one algo per key, or suffix the keyID with the algo?
+// Can we just get the algo from the request and force that?
+// we might need the library to tell us what algo the client sent and then we tell it if the keyID supports that algo
 func (a *ghAlgo) Type() string {
+	if len(a.algos) == 0 {
+		return ""
+	}
 	if a.validAlgoId < 0 || a.validAlgoId > len(a.algos)-1 {
 		return a.algos[0].Type()
 	}
@@ -23,6 +31,9 @@ func (a *ghAlgo) Type() string {
 }
 
 func (a *ghAlgo) Attributes() any {
+	if len(a.algos) == 0 {
+		return nil
+	}
 	if a.validAlgoId < 0 || a.validAlgoId > len(a.algos)-1 {
 		return nil
 	}
@@ -33,6 +44,9 @@ func (a *ghAlgo) Attributes() any {
 }
 
 func (a *ghAlgo) Verify(ctx context.Context, base string, signature []byte) error {
+	if len(a.algos) == 0 {
+		return fmt.Errorf("no algorithms to verify")
+	}
 	var err error
 	for i, algo := range a.algos {
 		err = algo.Verify(ctx, base, signature)

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha512"
+	"fmt"
 	"testing"
 
 	"github.com/common-fate/httpsig/verifier"
@@ -22,8 +23,8 @@ func TestAddKeys(t *testing.T) {
 		panic(err)
 	}
 	testKey := ssh.MarshalAuthorizedKey(kP)
-	testKeyHash := sha512.Sum512(testKey)
-	testKeyHashString := string(testKeyHash[:])
+	testKeyHash := sha512.Sum512(kP.Marshal())
+	testKeyHashString := fmt.Sprintf("%x", testKeyHash)
 
 	cases := []struct {
 		name            string

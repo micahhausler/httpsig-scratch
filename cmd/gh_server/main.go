@@ -9,6 +9,7 @@ import (
 
 	"github.com/common-fate/httpsig"
 	"github.com/common-fate/httpsig/inmemory"
+	"github.com/micahhausler/httpsig-scratch/attributes"
 	"github.com/micahhausler/httpsig-scratch/gh"
 	flag "github.com/spf13/pflag"
 )
@@ -59,7 +60,7 @@ func main() {
 			return
 		}
 
-		attr, ok := rawAttribute.(exampleAttributes)
+		attr, ok := rawAttribute.(attributes.User)
 		if !ok {
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprintf(w, "Signature verified, but attributes are not of type exampleAttributes")
@@ -76,9 +77,4 @@ func main() {
 		slog.Error("failed to start server", "error", err)
 		os.Exit(1)
 	}
-}
-
-type exampleAttributes struct {
-	Username string
-	UID      string
 }

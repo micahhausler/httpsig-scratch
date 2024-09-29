@@ -10,6 +10,7 @@ import (
 
 	"github.com/common-fate/httpsig/alg_ecdsa"
 	"github.com/common-fate/httpsig/verifier"
+	"github.com/micahhausler/httpsig-scratch/attributes"
 	rsaAlgo "github.com/micahhausler/httpsig-scratch/rsa"
 	"golang.org/x/crypto/ssh"
 )
@@ -55,10 +56,8 @@ func addKeys(k keysForUsers, username string, keys [][]byte) error {
 	}
 
 	for _, key := range keys {
-
-		keyHash := sha512.Sum512(key)
-		if _, ok := keyMap[string(keyHash[:])]; ok {
-			slog.Debug("key already exists", "username", username)
+		if len(key) == 0 {
+			// skip empty lines
 			continue
 		}
 
@@ -69,6 +68,12 @@ func addKeys(k keysForUsers, username string, keys [][]byte) error {
 			slog.Debug("invalid ssh authorized key", "key", key, "username", username, "error", err)
 			continue
 		}
+		kid := fmt.Sprintf("%x", sha512.Sum512(pubKey.Marshal()))
+		if _, ok := keyMap[kid]; ok {
+			slog.Debug("key id already exists", "username", username)
+			continue
+		}
+
 		switch pubKey.Type() {
 		case ssh.KeyAlgoRSA:
 			rsaPk, err := ConvertSSHPublicKeyToRSAPublicKey(pubKey)
@@ -76,18 +81,20 @@ func addKeys(k keysForUsers, username string, keys [][]byte) error {
 				slog.Debug("invalid rsa ssh key", "key", key, "username", username, "error", err)
 				continue
 			}
-			algos = append(algos,
-				rsaAlgo.NewRSAPKCS256Verifier(rsaPk),
-				rsaAlgo.NewRSAPSS512Verifier(rsaPk),
-			)
+			algos = append(algos, rsaAlgo.RSAPSS512{
+				PublicKey: rsaPk,
+				Attrs:     attributes.User{Username: username},
+			})
 		case ssh.KeyAlgoECDSA256:
 			ecdsaPk, err := ConvertSSHPublicKeyToECDSAPublicKey(pubKey)
 			if err != nil {
 				slog.Debug("invalid ecdsa ssh key", "key", key, "username", username, "error", err)
 				continue
 			}
-			algos = append(algos, alg_ecdsa.NewP256Verifier(ecdsaPk))
-
+			algos = append(algos, alg_ecdsa.P256{
+				PublicKey: ecdsaPk,
+				Attrs:     attributes.User{Username: username},
+			})
 		// TODO: handle ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521
 		default:
 			// TODO: handle ssh.KeyAlgoED25519
@@ -95,9 +102,17 @@ func addKeys(k keysForUsers, username string, keys [][]byte) error {
 			continue
 		}
 
-		keyMap[string(keyHash[:])] = algos
-		k[username] = keyMap
+		slog.Debug("adding key for user", "username", username, "kid", kid, "type", pubKey.Type(), "key", string(key))
+		keyMap[kid] = algos
 	}
+
+	if len(keyMap) == 0 {
+		slog.Debug("no keys for user", "username", username)
+		return nil
+	}
+
+	slog.Debug("adding keys for user", "username", username, "count", len(keyMap))
+	k[username] = keyMap
 
 	return nil
 }

@@ -10,10 +10,10 @@ I'm starting with https://github.com/common-fate/httpsig but want to also try so
 Tasks:
 - [x] Run example client and server
 - [x] Get server to support multiple algorithms
-- [ ] GitHub key database
+- [x] GitHub key database
   - [x] Create KeyDirectory backed by GitHub usernames
   - [x] Integrate KeyDirectory into server
-  - [ ] Get client signer to sign with SSH RSA or ECDSA Key
+  - [x] Get client signer to sign with SSH RSA or ECDSA Key
 - [ ] Impose specific signature base from the server
 - [ ] Define a signature input format for the client, including algo.
 
@@ -22,7 +22,29 @@ Tasks:
 make all
 ```
 
-## Example
+## GitHub keys as keyIDs
+
+This package contains an example http server that validates requests based on a set of given user's GitHub usernames. The server will look up the user's public keys (from `https://github.com/username.keys`), and add all the user's key to the in-memory database.
+
+The client can then use one of the corresponding private keys they've registered in GitHub, and sign their request to the server with their SSH ECDSA or RSA key. (`ssh-ed25519` are not yet supported)
+
+```sh
+./bin/gh_server --usernames micahhausler
+```
+
+```sh
+./bin/gh_client -key ~/.ssh/id_rsa
+HTTP/1.1 200 OK
+Content-Length: 20
+Content-Type: text/plain; charset=utf-8
+Date: Sun, 29 Sep 2024 02:33:59 GMT
+
+hello, micahhausler!
+```
+
+## Simple Server with local keys or HMAC
+
+The simple server has 3 users in its database: `alice` who is identified by a specified ECDSA key, `bob` who uses a pre-shared HMAC secret, and `eve` who uses an RSA keypair.
 
 ```sh
 # Create test ECDSA keypair id_ecdsa/id_ecdsa.pub

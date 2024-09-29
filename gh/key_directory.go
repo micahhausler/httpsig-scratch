@@ -2,6 +2,7 @@ package gh
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/common-fate/httpsig/verifier"
@@ -49,6 +50,10 @@ func (d *GitHubKeyDirectory) GetKey(ctx context.Context, kid string, clientSpeci
 				algos = append(algos, keyAlgos...)
 			}
 		}
+	}
+	if len(algos) == 0 {
+		slog.Error("No keys found for request", "kid", kid, "alg", clientSpecifiedAlg)
+		return nil, fmt.Errorf("no keys found for request")
 	}
 
 	// multiple users registered this key

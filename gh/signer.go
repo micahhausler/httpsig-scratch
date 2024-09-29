@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha512"
 	"fmt"
+	"log/slog"
 
 	"github.com/common-fate/httpsig/alg_ecdsa"
 	"github.com/common-fate/httpsig/contentdigest"
@@ -13,20 +14,6 @@ import (
 	rsaAlgo "github.com/micahhausler/httpsig-scratch/rsa"
 	"golang.org/x/crypto/ssh"
 )
-
-// func convertSSHPrivateKeyToCryptoRSAPrivateKey(sshPrivKey ssh.Signer) (*rsa.PrivateKey, error) {
-// 	// Check if the ssh.Signer is of type *ssh.CryptoPrivateKey
-// 	if cryptoPrivKey, ok := sshPrivKey.(ssh.CryptoPrivateKey); ok {
-// 		// Extract the underlying private key
-// 		switch key := cryptoPrivKey.CryptoPrivateKey().(type) {
-// 		case *rsa.PrivateKey:
-// 			return key, nil
-// 		default:
-// 			return nil, fmt.Errorf("unsupported private key type")
-// 		}
-// 	}
-// 	return nil, fmt.Errorf("not a crypto private key")
-// }
 
 type GitHubSigner struct {
 	algo  signer.Algorithm
@@ -42,8 +29,10 @@ func NewGHSigner(keydata []byte) (*GitHubSigner, error) {
 	var algo signer.Algorithm
 	switch keyType := kp.(type) {
 	case *rsa.PrivateKey:
+		slog.Debug("using RSA key")
 		algo = rsaAlgo.NewRSAPSS512Signer(kp.(*rsa.PrivateKey))
 	case *ecdsa.PrivateKey:
+		slog.Debug("using ECDSA key")
 		algo = alg_ecdsa.NewP256Signer(kp.(*ecdsa.PrivateKey))
 	default:
 		return nil, fmt.Errorf("unsupported key type: %T", keyType)
@@ -53,12 +42,12 @@ func NewGHSigner(keydata []byte) (*GitHubSigner, error) {
 	if err != nil {
 		return nil, err
 	}
-	// TODO: Is this marshalling consistent with how GH does it?
-	keyHash := sha512.Sum512(ssh.MarshalAuthorizedKey(signer.PublicKey()))
+	// TODO: Is this marshalling consistent
+	keyHash := sha512.Sum512(signer.PublicKey().Marshal())
 
 	return &GitHubSigner{
 		algo:  algo,
-		keyId: string(keyHash[:]),
+		keyId: fmt.Sprintf("%x", keyHash),
 	}, nil
 }
 
