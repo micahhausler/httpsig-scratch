@@ -7,7 +7,6 @@ import (
 	"crypto/rsa"
 	"crypto/sha512"
 	"errors"
-	"fmt"
 
 	"github.com/common-fate/httpsig/contentdigest"
 )
@@ -52,9 +51,6 @@ func (a RSAPSS512) Sign(ctx context.Context, base string) ([]byte, error) {
 }
 
 func (a RSAPSS512) Verify(ctx context.Context, base string, signature []byte) error {
-	if len(signature) != 256 {
-		return fmt.Errorf("expected 256 byte signature but got %v bytes", len(signature))
-	}
 	digest := sha512.Sum512([]byte(base))
 	return rsa.VerifyPSS(a.PublicKey, crypto.SHA512, digest[:], signature, &rsa.PSSOptions{})
 }

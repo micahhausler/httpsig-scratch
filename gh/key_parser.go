@@ -22,7 +22,7 @@ func init() {
 	slog.SetDefault(jsonLogger)
 }
 
-func convertSSHPublicKeyToRSAPublicKey(sshPubKey ssh.PublicKey) (*rsa.PublicKey, error) {
+func ConvertSSHPublicKeyToRSAPublicKey(sshPubKey ssh.PublicKey) (*rsa.PublicKey, error) {
 	// Check if the ssh.PublicKey is of type *ssh.CryptoPublicKey
 	if cryptoPubKey, ok := sshPubKey.(ssh.CryptoPublicKey); ok {
 		// Extract the underlying public key
@@ -33,7 +33,7 @@ func convertSSHPublicKeyToRSAPublicKey(sshPubKey ssh.PublicKey) (*rsa.PublicKey,
 	return nil, fmt.Errorf("not an RSA public key")
 }
 
-func convertSSHPublicKeyToECDSAPublicKey(sshPubKey ssh.PublicKey) (*ecdsa.PublicKey, error) {
+func ConvertSSHPublicKeyToECDSAPublicKey(sshPubKey ssh.PublicKey) (*ecdsa.PublicKey, error) {
 	// Check if the ssh.PublicKey is of type *ssh.CryptoPublicKey
 	if cryptoPubKey, ok := sshPubKey.(ssh.CryptoPublicKey); ok {
 		// Extract the underlying public key
@@ -71,7 +71,7 @@ func addKeys(k keysForUsers, username string, keys [][]byte) error {
 		}
 		switch pubKey.Type() {
 		case ssh.KeyAlgoRSA:
-			rsaPk, err := convertSSHPublicKeyToRSAPublicKey(pubKey)
+			rsaPk, err := ConvertSSHPublicKeyToRSAPublicKey(pubKey)
 			if err != nil {
 				slog.Debug("invalid rsa ssh key", "key", key, "username", username, "error", err)
 				continue
@@ -81,7 +81,7 @@ func addKeys(k keysForUsers, username string, keys [][]byte) error {
 				rsaAlgo.NewRSAPSS512Verifier(rsaPk),
 			)
 		case ssh.KeyAlgoECDSA256:
-			ecdsaPk, err := convertSSHPublicKeyToECDSAPublicKey(pubKey)
+			ecdsaPk, err := ConvertSSHPublicKeyToECDSAPublicKey(pubKey)
 			if err != nil {
 				slog.Debug("invalid ecdsa ssh key", "key", key, "username", username, "error", err)
 				continue

@@ -24,24 +24,43 @@ make all
 
 ## Example
 
-```
-$ ./bin/server
+```sh
+# Create test ECDSA keypair id_ecdsa/id_ecdsa.pub
+mkdir -p keys/
+ssh-keygen -f ./keys/id_ecdsa -t ecdsa -N ""
+ssh-keygen -f ./keys/id_rsa -t rsa -b 4096 -N ""
+./bin/server --ecdsa-pubkey ./keys/id_ecdsa.pub --rsa-pubkey ./keys/id_rsa.pub
 ```
 
-In another tab
+In another tab, run the client
 ```
-$ ./bin/client
+# Alice uses an ECDSA key
+$ ./bin/client --key ./keys/id_ecdsa --key-id alice
+2024/09/28 20:20:56 INFO Using ecdsa P256 signer key-id=alice
 HTTP/1.1 200 OK
 Content-Length: 13
 Content-Type: text/plain; charset=utf-8
-Date: Sat, 28 Sep 2024 17:39:47 GMT
+Date: Sun, 29 Sep 2024 01:20:56 GMT
 
 hello, alice!
-$ ./bin/client -kid micah -alg hmac-sha256
-HTTP/1.1 200 OK
-Content-Length: 13
-Content-Type: text/plain; charset=utf-8
-Date: Sat, 28 Sep 2024 17:39:56 GMT
 
-hello, micah!
+# Bob uses an hmac pre-shared secret
+$ ./bin/client --key-id bob
+2024/09/28 20:21:07 INFO Using HMAC SHA-256 signer key-id=bob
+HTTP/1.1 200 OK
+Content-Length: 11
+Content-Type: text/plain; charset=utf-8
+Date: Sun, 29 Sep 2024 01:21:07 GMT
+
+hello, bob!
+
+# eve uses an RSA key
+$ ./bin/client --key ./keys/id_rsa --key-id eve
+2024/09/28 20:21:16 INFO Using ecdsa P256 signer key-id=eve
+HTTP/1.1 200 OK
+Content-Length: 11
+Content-Type: text/plain; charset=utf-8
+Date: Sun, 29 Sep 2024 01:21:16 GMT
+
+hello, eve!
 ```

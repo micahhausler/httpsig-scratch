@@ -2,3 +2,9 @@
 cover.out
 .vscode/
 bin/
+
+keys/
+id_rsa
+id_rsa.pub
+id_ecdsa
+id_ecdsa.pub

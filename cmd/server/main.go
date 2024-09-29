@@ -8,9 +8,14 @@ import (
 	"os"
 
 	"github.com/common-fate/httpsig"
+	"github.com/common-fate/httpsig/alg_ecdsa"
 	"github.com/common-fate/httpsig/inmemory"
 	"github.com/micahhausler/httpsig-scratch/gh"
+	"github.com/micahhausler/httpsig-scratch/hmac"
+	"github.com/micahhausler/httpsig-scratch/multialgo"
+	rsaAlgo "github.com/micahhausler/httpsig-scratch/rsa"
 	flag "github.com/spf13/pflag"
+	"golang.org/x/crypto/ssh"
 )
 
 func init() {
@@ -23,15 +28,68 @@ func init() {
 
 func main() {
 	port := flag.Int("port", 9091, "port to listen on")
-	usernames := flag.StringSlice("usernames", []string{"micahhausler"}, "usernames to allow")
+	ecdsaKeyFile := flag.String("ecdsa-pubkey", "", "path to ecdsa public key")
+	rsaKeyFile := flag.String("rsa-pubkey", "", "path to rsa public key")
 	flag.Parse()
 	addr := fmt.Sprintf("localhost:%d", *port)
 
-	keyDir, err := gh.NewGitHubKeyDirectory(*usernames)
+	ecdsaData, err := os.ReadFile(*ecdsaKeyFile)
 	if err != nil {
-		slog.Error("failed to create key directory", "error", err)
+		slog.Error("failed to read public key file", "error", err)
 		os.Exit(1)
 	}
+	sshEPub, _, _, _, err := ssh.ParseAuthorizedKey(ecdsaData)
+	if err != nil {
+		slog.Error("failed to parse public key", "error", err)
+		os.Exit(1)
+	}
+	ePub, err := gh.ConvertSSHPublicKeyToECDSAPublicKey(sshEPub)
+	if err != nil {
+		slog.Error("failed to convert SSH pub key file", "error", err)
+		os.Exit(1)
+	}
+
+	keyMap := map[string]multialgo.AttributerAlgo{
+		"alice": alg_ecdsa.P256{
+			PublicKey: ePub,
+			Attrs: exampleAttributes{
+				Username: "alice",
+				UID:      "1234",
+			},
+		},
+		"bob": hmac.NewHMACWithAttributes(
+			// fake, generated from `head -c 32 /dev/urandom |base64`
+			[]byte(`G+k5G/ECWBcga6MhEUDHyiFW7P3XsEdx66UQnVFqouc=`),
+			exampleAttributes{
+				Username: "bob",
+				UID:      "5678",
+			},
+		),
+	}
+
+	if *rsaKeyFile != "" {
+		rsaData, err := os.ReadFile(*rsaKeyFile)
+		if err != nil {
+			slog.Error("failed to read public key file", "error", err)
+			os.Exit(1)
+		}
+		sshRsaPub, _, _, _, err := ssh.ParseAuthorizedKey(rsaData)
+		if err != nil {
+			slog.Error("failed to parse public key", "error", err)
+			os.Exit(1)
+		}
+		rsaPub, err := gh.ConvertSSHPublicKeyToRSAPublicKey(sshRsaPub)
+		if err != nil {
+			slog.Error("failed to convert SSH pub key file", "error", err)
+			os.Exit(1)
+		}
+		keyMap["eve"] = rsaAlgo.RSAPSS512{PublicKey: rsaPub, Attrs: exampleAttributes{
+			Username: "eve",
+			UID:      "911",
+		}}
+	}
+
+	keyDir := multialgo.NewMultiAlgoAttributerDirectory(keyMap)
 
 	mux := http.NewServeMux()
 

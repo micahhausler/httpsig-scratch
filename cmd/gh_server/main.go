@@ -2,20 +2,15 @@ package main
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/x509"
-	"encoding/pem"
-	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 
 	"github.com/common-fate/httpsig"
-	"github.com/common-fate/httpsig/alg_ecdsa"
 	"github.com/common-fate/httpsig/inmemory"
-	"github.com/micahhausler/httpsig-scratch/hmac"
-	"github.com/micahhausler/httpsig-scratch/multialgo"
+	"github.com/micahhausler/httpsig-scratch/gh"
+	flag "github.com/spf13/pflag"
 )
 
 func init() {
@@ -28,41 +23,15 @@ func init() {
 
 func main() {
 	port := flag.Int("port", 9091, "port to listen on")
+	usernames := flag.StringSlice("usernames", []string{"micahhausler"}, "usernames to allow")
 	flag.Parse()
 	addr := fmt.Sprintf("localhost:%d", *port)
 
-	keyString := `-----BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEqIVYZVLCrPZHGHjP17CTW0/+D9Lf
-w0EkjqF7xB4FivAxzic30tMM4GF+hR6Dxh71Z50VGGdldkkDXZCnTNnoXQ==
------END PUBLIC KEY-----
-`
-
-	block, _ := pem.Decode([]byte(keyString))
-
-	key, err := x509.ParsePKIXPublicKey(block.Bytes)
+	keyDir, err := gh.NewGitHubKeyDirectory(*usernames)
 	if err != nil {
-		slog.Error("failed to parse public key", "error", err)
+		slog.Error("failed to create key directory", "error", err)
 		os.Exit(1)
 	}
-	ecKey := key.(*ecdsa.PublicKey)
-
-	keyDir := multialgo.NewMultiAlgoAttributerDirectory(map[string]multialgo.AttributerAlgo{
-		"alice": alg_ecdsa.P256{
-			PublicKey: ecKey,
-			Attrs: exampleAttributes{
-				Username: "alice",
-				UID:      "1234",
-			},
-		},
-		"micah": hmac.NewHMACWithAttributes(
-			// fake, generated from `head -c 32 /dev/urandom |base64`
-			[]byte(`G+k5G/ECWBcga6MhEUDHyiFW7P3XsEdx66UQnVFqouc=`),
-			exampleAttributes{
-				Username: "micah",
-				UID:      "5678",
-			},
-		),
-	})
 
 	mux := http.NewServeMux()
 
