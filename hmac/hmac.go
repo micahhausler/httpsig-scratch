@@ -48,15 +48,9 @@ func (h *HMAC) Sign(ctx context.Context, base string) ([]byte, error) {
 	if h.key == nil {
 		return nil, errors.New("no key provided")
 	}
-
-	workingHMAC := hmac.New(sha256.New, h.key)
-	_, err := workingHMAC.Write([]byte(base))
-	if err != nil {
-		return nil, err
-	}
-	dataHmac := workingHMAC.Sum(nil)
-	resp := []byte{}
-	hex.Encode(dataHmac, resp)
+	dataHmac := hmac.New(sha256.New, h.key).Sum([]byte(base))
+	resp := make([]byte, hex.EncodedLen(len(dataHmac)))
+	hex.Encode(resp, dataHmac)
 	return resp, nil
 }
 

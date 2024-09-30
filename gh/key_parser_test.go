@@ -40,7 +40,7 @@ func TestAddKeys(t *testing.T) {
 			"testuser",
 			[][]byte{testKey},
 			map[string][]verifier.Algorithm{
-				testKeyHashString: {rsaAlgo.NewRSAPKCS256Verifier(&kp.PublicKey), rsaAlgo.NewRSAPSS512Verifier(&kp.PublicKey)},
+				testKeyHashString: {rsaAlgo.NewRSAPSS512Verifier(&kp.PublicKey)},
 			},
 			false,
 		},

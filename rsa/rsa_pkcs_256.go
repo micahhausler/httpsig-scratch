@@ -3,11 +3,9 @@ package rsa
 import (
 	"context"
 	"crypto"
-	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"errors"
-	"fmt"
 
 	"github.com/common-fate/httpsig/contentdigest"
 )
@@ -48,13 +46,10 @@ func (a RSAPKCS256) Sign(ctx context.Context, base string) ([]byte, error) {
 		return nil, errors.New("private key was nil")
 	}
 	digest := sha256.Sum256([]byte(base))
-	return rsa.SignPKCS1v15(rand.Reader, a.PrivateKey, crypto.SHA256, digest[:])
+	return rsa.SignPKCS1v15(nil, a.PrivateKey, crypto.SHA256, digest[:])
 }
 
 func (a RSAPKCS256) Verify(ctx context.Context, base string, signature []byte) error {
-	if len(signature) != 64 {
-		return fmt.Errorf("expected 64 byte signature but got %v bytes", len(signature))
-	}
 	digest := sha256.Sum256([]byte(base))
 	return rsa.VerifyPKCS1v15(a.PublicKey, crypto.SHA256, digest[:], signature)
 }

@@ -63,8 +63,8 @@ func main() {
 		attr, ok := rawAttribute.(attributes.User)
 		if !ok {
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, "Signature verified, but attributes are not of type exampleAttributes")
-			defer slog.Error("Attributes are not of type exampleAttributes")
+			fmt.Fprintf(w, "Signature verified, but attributes are not of type attributes.User")
+			defer slog.Error("Attributes are not of type attributes.User")
 			return
 		}
 		defer slog.Info("request", "username", attr.Username)

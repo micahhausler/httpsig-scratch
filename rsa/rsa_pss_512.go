@@ -47,10 +47,10 @@ func (a RSAPSS512) Sign(ctx context.Context, base string) ([]byte, error) {
 		return nil, errors.New("private key was nil")
 	}
 	digest := sha512.Sum512([]byte(base))
-	return rsa.SignPSS(rand.Reader, a.PrivateKey, crypto.SHA512, digest[:], &rsa.PSSOptions{})
+	return rsa.SignPSS(rand.Reader, a.PrivateKey, crypto.SHA512, digest[:], &rsa.PSSOptions{SaltLength: 64})
 }
 
 func (a RSAPSS512) Verify(ctx context.Context, base string, signature []byte) error {
 	digest := sha512.Sum512([]byte(base))
-	return rsa.VerifyPSS(a.PublicKey, crypto.SHA512, digest[:], signature, &rsa.PSSOptions{})
+	return rsa.VerifyPSS(a.PublicKey, crypto.SHA512, digest[:], signature, &rsa.PSSOptions{SaltLength: 64})
 }

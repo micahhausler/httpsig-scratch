@@ -8,3 +8,12 @@ id_rsa
 id_rsa.pub
 id_ecdsa
 id_ecdsa.pub
+
+mount/*.pem
+mount/*.key
+mount/*.csr
+mount/*.log
+mount/*.crt
+
+
+kubeconfig

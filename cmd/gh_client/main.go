@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/http/httputil"
 	"os"
 
@@ -17,6 +18,20 @@ func init() {
 		Level: slog.LevelDebug,
 	}))
 	slog.SetDefault(logger)
+}
+
+type headerRoundTripper struct {
+	transport http.RoundTripper
+	header    http.Header
+}
+
+func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	for key, values := range h.header {
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
+	return h.transport.RoundTrip(req)
 }
 
 func main() {
@@ -42,14 +57,29 @@ func main() {
 		KeyID: algorithm.KeyID(),
 		Tag:   "foo",
 		Alg:   algorithm,
+		CoveredComponents: []string{
+			"@method", "@target-uri", "content-type", "content-length", "content-digest",
+			"x-custom-header",
+		},
 		OnDeriveSigningString: func(ctx context.Context, stringToSign string) {
 			slog.Debug("signing string", "string", stringToSign)
 		},
 	})
 
+	headers := http.Header{
+		"X-Custom-Header": []string{"CustomValue"},
+	}
+	existingTransport := client.Transport
+	if existingTransport == nil {
+		existingTransport = http.DefaultTransport
+	}
+	client.Transport = &headerRoundTripper{
+		transport: existingTransport,
+		header:    headers,
+	}
+
 	res, err := client.Post(addr, "application/json", nil)
 	if err != nil {
-		// panic(err)
 		slog.Error("failed to send request", "error", err)
 		os.Exit(1)
 	}

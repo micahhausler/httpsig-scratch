@@ -46,8 +46,13 @@ func (d *GitHubKeyDirectory) GetKey(ctx context.Context, kid string, clientSpeci
 	for user, keys := range d.keysForUsers {
 		users = append(users, user)
 		for key, keyAlgos := range keys {
-			if key == kid {
-				algos = append(algos, keyAlgos...)
+			if key != kid {
+				continue
+			}
+			for _, alg := range keyAlgos {
+				if alg.Type() == clientSpecifiedAlg {
+					algos = append(algos, keyAlgos...)
+				}
 			}
 		}
 	}
