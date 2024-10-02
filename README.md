@@ -4,6 +4,8 @@
 
 ## Example 1: GitHub SSH keys as identifiers
 
+![gh-sequence](./docs/img/gh-sequence.png)
+
 This package contains an example http server that validates requests based on a set of given user's GitHub usernames. The server will look up the user's public keys (from `https://github.com/username.keys`), and add all the user's key to the in-memory database.
 
 The client can then use one of the corresponding private keys they've registered in GitHub, and sign their request to the server with their SSH ECDSA or RSA key. (`ssh-ed25519` are not yet supported)
@@ -23,6 +25,8 @@ hello, micahhausler!
 ```
 
 ## Example 2: Server using Session Token concept 
+
+![session-sequence](./docs/img/session-token-sequence.png)
 
 Rather than force the server to keep a database of KeyIDs to users, a scalable 
 model for mapping keys to users is to use an encrypted "SessionToken" concept.
@@ -111,6 +115,8 @@ Passing the session token around via the request context is smelly, and should
 probably be refactored so the verifier can directly access the header. 
 
 ## Example 3: Kubernetes Signed Request Proxy 
+
+![k8s-auth-proxy](./docs/img/k8s-proxy-sequence.png)
 
 A real world application server that could reap the benefits of message signing
 is Kubernetes. Today, there is no support for client authentication methods 
