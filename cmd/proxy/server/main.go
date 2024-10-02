@@ -44,7 +44,14 @@ func main() {
 		slog.Error("failed to parse backend URL", "error", err)
 		os.Exit(1)
 	}
-	// TODO: validate all cert files exist
+
+	fileNames := []string{*serverCert, *serverKey, *clientCert, *clientKey}
+	for _, fileName := range fileNames {
+		if _, err := os.Stat(fileName); err != nil {
+			slog.Error("file does not exist", "file", fileName)
+			os.Exit(1)
+		}
+	}
 
 	clientCertPair, err := tls.LoadX509KeyPair(*clientCert, *clientKey)
 	if err != nil {
@@ -52,8 +59,10 @@ func main() {
 		os.Exit(1)
 	}
 	tlsConfig := &tls.Config{
-		Certificates:       []tls.Certificate{clientCertPair}, // Client cert
-		InsecureSkipVerify: true,                              // Demo only, to connect to the K8s API
+		Certificates: []tls.Certificate{clientCertPair}, // Client cert
+		// Demo only, to connect to the K8s API
+		// TODO: load k8s API TLS cert
+		InsecureSkipVerify: true,
 	}
 	proxy := httputil.NewSingleHostReverseProxy(proxyURL)
 	proxy.Transport = &http.Transport{TLSClientConfig: tlsConfig}
@@ -74,7 +83,6 @@ func main() {
 		OnValidationError: func(ctx context.Context, err error) {
 			slog.Error("validation error", "error", err)
 		},
-
 		OnDeriveSigningString: func(ctx context.Context, stringToSign string) {
 			slog.Debug("string to sign", "string", stringToSign)
 		},

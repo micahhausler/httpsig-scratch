@@ -63,6 +63,8 @@ func (d *GitHubKeyDirectory) GetKey(ctx context.Context, kid string, clientSpeci
 
 	// multiple users registered this key
 	if len(users) > 1 {
+		// TODO: create a new verifier.Algorithm that can handle multiple keys for the same id/alg
+		// and try to verify with each one.
 		slog.Info("multiple users registered key", "users", users, "kid", kid)
 	}
 	return &ghAlgo{algos: algos, validAlgoId: -1}, nil

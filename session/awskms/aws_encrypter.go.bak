@@ -1,0 +1,107 @@
+package awskms
+
+import (
+	"context"
+	"crypto/x509"
+	"encoding/json"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
+)
+
+// KMSEncrypter is an interface for encrypting data using AWS KMS.
+type KMSEncrypter interface {
+	Encrypt(ctx context.Context, params *kms.EncryptInput, optFns ...func(*kms.Options)) (*kms.EncryptOutput, error)
+}
+
+type KMSDecrypter interface {
+	Decrypt(ctx context.Context, params *kms.DecryptInput, optFns ...func(*kms.Options)) (*kms.DecryptOutput, error)
+}
+
+type SessionToken struct {
+	KeyID      string `json:"key_id"`
+	Alg        string `json:"alg"`
+	PublicKey  []byte `json:"public_key"`
+	Attributes any    `json:"attributes"`
+}
+
+type Encrypter struct {
+	KMSClient KMSEncrypter
+	KeyID     string
+}
+
+func (e *Encrypter) EncryptPublicKey(ctx context.Context, keyID, alg string, publicKey, attributes any) ([]byte, error) {
+	var err error
+	kPbytes := []byte{}
+	switch alg {
+	case "ed25519", "rsa-pss-sha512", "rsa-v1_5-sha256", "ecdsa-p256-sha256", "ecdsa-p384-sha384":
+		kPbytes, err = x509.MarshalPKIXPublicKey(publicKey)
+		if err != nil {
+			return nil, err
+		}
+	case "hmac-sha256":
+		kPbytes = publicKey.([]byte)
+	}
+
+	st := &SessionToken{
+		KeyID:      keyID,
+		Alg:        alg,
+		PublicKey:  kPbytes,
+		Attributes: attributes,
+	}
+	data, err := json.Marshal(st)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := e.KMSClient.Encrypt(ctx, &kms.EncryptInput{
+		KeyId:     aws.String(e.KeyID),
+		Plaintext: data,
+		// TODO: Add encryption context
+		// EncryptionContext: map[string]string{
+		// 	"alg": alg,
+		// 	"kid": keyID,
+		// },
+	})
+	if err != nil {
+		return nil, err
+	}
+	if resp.CiphertextBlob != nil {
+		return resp.CiphertextBlob, nil
+	}
+	return nil, nil
+}
+
+type Decrypter struct {
+	KMSClient KMSDecrypter
+	KeyID     string
+}
+
+func (d *Decrypter) DecryptPublicKey(ctx context.Context, content []byte) (keyID, alg string, publicKey, attributes any, err error) {
+	resp, err := d.KMSClient.Decrypt(ctx, &kms.DecryptInput{
+		KeyId:          &d.KeyID,
+		CiphertextBlob: content,
+		// EncryptionContext: map[string]string{
+		// 	"kid": d.KeyID,
+		// },
+	})
+	if err != nil {
+		return "", "", nil, nil, err
+	}
+	st := &SessionToken{}
+	err = json.Unmarshal(resp.Plaintext, st)
+	if err != nil {
+		return "", "", nil, nil, err
+	}
+	var kP any
+	switch st.Alg {
+	case "ed25519", "rsa-pss-sha512", "rsa-v1_5-sha256", "ecdsa-p256-sha256", "ecdsa-p384-sha384":
+		kP, err = x509.ParsePKIXPublicKey(st.PublicKey)
+		if err != nil {
+			return "", "", nil, nil, err
+		}
+	case "hmac-sha256":
+		kP = st.PublicKey
+	}
+
+	return st.KeyID, st.Alg, kP, st.Attributes, nil
+}

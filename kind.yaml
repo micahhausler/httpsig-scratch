@@ -21,5 +21,5 @@ kubeadmConfigPatches:
 nodes:
   - role: control-plane
     extraMounts:
-      - hostPath: "/Users/micahhausler/go/src/github.com/micahhausler/httpsig-scratch/mount"
+      - hostPath: "/Users/mhausler/go/src/github.com/micahhausler/httpsig-scratch/mount"
         containerPath: "/mount"
