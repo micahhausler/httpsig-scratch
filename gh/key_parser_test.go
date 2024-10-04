@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/common-fate/httpsig/alg_rsa"
 	"github.com/common-fate/httpsig/verifier"
-	rsaAlgo "github.com/micahhausler/httpsig-scratch/rsa"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -40,19 +40,19 @@ func TestAddKeys(t *testing.T) {
 			"testuser",
 			[][]byte{testKey},
 			map[string][]verifier.Algorithm{
-				testKeyHashString: {rsaAlgo.NewRSAPSS512Verifier(&kp.PublicKey)},
+				testKeyHashString: {alg_rsa.NewRSAPSS512Verifier(&kp.PublicKey)},
 			},
 			false,
 		},
 		{
 			"key exists",
 			keysForUsers{"testuser": map[string][]verifier.Algorithm{
-				testKeyHashString: {rsaAlgo.NewRSAPKCS256Verifier(&kp.PublicKey), rsaAlgo.NewRSAPSS512Verifier(&kp.PublicKey)},
+				testKeyHashString: {alg_rsa.NewRSAPKCS256Verifier(&kp.PublicKey), alg_rsa.NewRSAPSS512Verifier(&kp.PublicKey)},
 			}},
 			"testuser",
 			[][]byte{testKey},
 			map[string][]verifier.Algorithm{
-				testKeyHashString: {rsaAlgo.NewRSAPKCS256Verifier(&kp.PublicKey), rsaAlgo.NewRSAPSS512Verifier(&kp.PublicKey)},
+				testKeyHashString: {alg_rsa.NewRSAPKCS256Verifier(&kp.PublicKey), alg_rsa.NewRSAPSS512Verifier(&kp.PublicKey)},
 			},
 			false,
 		},

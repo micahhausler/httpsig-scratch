@@ -9,9 +9,9 @@ import (
 	"log/slog"
 
 	"github.com/common-fate/httpsig/alg_ecdsa"
+	"github.com/common-fate/httpsig/alg_rsa"
 	"github.com/common-fate/httpsig/contentdigest"
 	"github.com/common-fate/httpsig/signer"
-	rsaAlgo "github.com/micahhausler/httpsig-scratch/rsa"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -30,7 +30,7 @@ func NewGHSigner(keydata []byte) (*GitHubSigner, error) {
 	switch keyType := kp.(type) {
 	case *rsa.PrivateKey:
 		slog.Debug("using RSA key")
-		algo = rsaAlgo.NewRSAPSS512Signer(kp.(*rsa.PrivateKey))
+		algo = alg_rsa.NewRSAPSS512Signer(kp.(*rsa.PrivateKey))
 	case *ecdsa.PrivateKey:
 		slog.Debug("using ECDSA key")
 		algo = alg_ecdsa.NewP256Signer(kp.(*ecdsa.PrivateKey))

@@ -9,9 +9,9 @@ import (
 	"os"
 
 	"github.com/common-fate/httpsig/alg_ecdsa"
+	"github.com/common-fate/httpsig/alg_rsa"
 	"github.com/common-fate/httpsig/verifier"
 	"github.com/micahhausler/httpsig-scratch/attributes"
-	rsaAlgo "github.com/micahhausler/httpsig-scratch/rsa"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -81,7 +81,7 @@ func addKeys(k keysForUsers, username string, keys [][]byte) error {
 				slog.Debug("invalid rsa ssh key", "key", key, "username", username, "error", err)
 				continue
 			}
-			algos = append(algos, rsaAlgo.RSAPSS512{
+			algos = append(algos, alg_rsa.RSAPSS512{
 				PublicKey: rsaPk,
 				Attrs:     attributes.User{Username: username},
 			})

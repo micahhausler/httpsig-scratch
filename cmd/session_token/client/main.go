@@ -17,9 +17,9 @@ import (
 
 	"github.com/common-fate/httpsig"
 	"github.com/common-fate/httpsig/alg_ecdsa"
+	"github.com/common-fate/httpsig/alg_hmac"
+	"github.com/common-fate/httpsig/alg_rsa"
 	"github.com/common-fate/httpsig/signer"
-	"github.com/micahhausler/httpsig-scratch/hmac"
-	rsaAlgo "github.com/micahhausler/httpsig-scratch/rsa"
 	"github.com/micahhausler/httpsig-scratch/session"
 	flag "github.com/spf13/pflag"
 	"golang.org/x/crypto/ssh"
@@ -93,7 +93,7 @@ func main() {
 			slog.Error("failed to read private key file", "error", err, "path", *keyPath)
 			os.Exit(1)
 		}
-		algorithm = hmac.NewHMAC(keyBytes)
+		algorithm = alg_hmac.NewHMAC(keyBytes)
 		username = "bob"
 		slog.Info("Using HMAC SHA-256 signer", "key-algo", *keyAlgo, "username", username)
 	case "rsa-pss-sha512":
@@ -112,7 +112,7 @@ func main() {
 			slog.Error("not an rsa private key")
 			os.Exit(1)
 		}
-		algorithm = rsaAlgo.NewRSAPSS512Signer(key)
+		algorithm = alg_rsa.NewRSAPSS512Signer(key)
 
 		derBytes, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
 		if err != nil {

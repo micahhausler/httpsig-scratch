@@ -1,5 +1,5 @@
-github.com/common-fate/httpsig v0.1.1 h1:TbyYtCIR4corQ4AhE7QGAWDQQwnihausHNMr4QY4U4g=
-github.com/common-fate/httpsig v0.1.1/go.mod h1:nMk4aBS8GDo8tiUMLqB60W6I3+BiNH5Uj437pV61Jl8=
+github.com/common-fate/httpsig v0.2.0 h1:2hTmAmOAiOJe+tXsImWBNqJ/7q8w+9QqSJj7huBoXlE=
+github.com/common-fate/httpsig v0.2.0/go.mod h1:nMk4aBS8GDo8tiUMLqB60W6I3+BiNH5Uj437pV61Jl8=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

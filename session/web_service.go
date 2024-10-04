@@ -12,9 +12,9 @@ import (
 	"net/http"
 
 	"github.com/common-fate/httpsig/alg_ecdsa"
+	"github.com/common-fate/httpsig/alg_hmac"
+	"github.com/common-fate/httpsig/alg_rsa"
 	"github.com/common-fate/httpsig/verifier"
-	"github.com/micahhausler/httpsig-scratch/hmac"
-	alg_rsa "github.com/micahhausler/httpsig-scratch/rsa"
 )
 
 type User struct {
@@ -226,7 +226,7 @@ func (s *DecryptionService) GetKey(ctx context.Context, kid string, clientSpecif
 			Attrs:     attributes,
 		}, nil
 	case "hmac-sha256":
-		return hmac.NewHMACWithAttributes(publicKey, attributes), nil
+		return alg_hmac.NewHMACWithAttributes(publicKey, attributes), nil
 	default:
 		return nil, fmt.Errorf("unsupported algorithm")
 	}
