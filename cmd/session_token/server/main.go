@@ -13,23 +13,22 @@ import (
 	"github.com/common-fate/httpsig/inmemory"
 	"github.com/common-fate/httpsig/sigparams"
 	"github.com/common-fate/httpsig/verifier"
+	"github.com/micahhausler/httpsig-scratch/cmd"
 	"github.com/micahhausler/httpsig-scratch/session"
 	"github.com/micahhausler/httpsig-scratch/session/block"
 	flag "github.com/spf13/pflag"
 )
 
-func init() {
-	jsonLogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level:     slog.LevelDebug,
-		AddSource: true,
-	}))
-	slog.SetDefault(jsonLogger)
-}
-
 func main() {
 	port := flag.Int("port", 9091, "port to listen on")
 	sessionTokenEncryptionKeyFile := flag.String("session-token-encryption-key", "", "path to session token encryption key")
+	logLevel := cmd.LevelFlag(slog.LevelInfo)
+	flag.Var(&logLevel, "log-level", "log level")
 	flag.Parse()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level:     slog.Level(logLevel),
+		AddSource: slog.Level(logLevel) == slog.LevelDebug,
+	})))
 	addr := fmt.Sprintf("localhost:%d", *port)
 
 	aesKey, err := os.ReadFile(*sessionTokenEncryptionKeyFile)

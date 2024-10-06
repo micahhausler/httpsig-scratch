@@ -20,18 +20,11 @@ import (
 	"github.com/common-fate/httpsig/alg_hmac"
 	"github.com/common-fate/httpsig/alg_rsa"
 	"github.com/common-fate/httpsig/signer"
+	"github.com/micahhausler/httpsig-scratch/cmd"
 	"github.com/micahhausler/httpsig-scratch/session"
 	flag "github.com/spf13/pflag"
 	"golang.org/x/crypto/ssh"
 )
-
-func init() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-		// AddSource: true,
-	}))
-	slog.SetDefault(logger)
-}
 
 type headerRoundTripper struct {
 	transport http.RoundTripper
@@ -52,7 +45,14 @@ func main() {
 	keyPath := flag.String("key", "", "path to signing key")
 	host := flag.String("host", "localhost", "host to connect to")
 	port := flag.Int("port", 9091, "port to connect to")
+	logLevel := cmd.LevelFlag(slog.LevelInfo)
+	flag.Var(&logLevel, "log-level", "log level")
 	flag.Parse()
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level:     slog.Level(logLevel),
+		AddSource: slog.Level(logLevel) == slog.LevelDebug,
+	})))
 	addr := fmt.Sprintf("http://%s:%d", *host, *port)
 
 	var (

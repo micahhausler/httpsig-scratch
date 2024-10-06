@@ -47,7 +47,7 @@ keys/aes.key: keys
 	openssl rand 32 > keys/aes.key
 
 keys/id_rsa: keys
-	ssh-keygen -t rsa -N "" -b 4096 -f keys/id_rsa 
+	ssh-keygen -t rsa -N "" -b 4096 -f keys/id_rsa
 
 keys/id_ecdsa: keys
 	ssh-keygen -t ecdsa -N "" -b 256 -f keys/id_ecdsa
@@ -62,11 +62,13 @@ all_keys: keys/aes.key keys/id_rsa keys/id_ecdsa keys/hmac.key
 clean_keys:
 	rm -f keys/*
 
+SERVER_ARGS := --log-level info
+
 ### SessionToken
 
 .PHONY: session_server
 session_server: bin/session_server keys/aes.key
-	./bin/session_server --session-token-encryption-key keys/aes.key | jq
+	./bin/session_server $(SERVER_ARGS) --session-token-encryption-key keys/aes.key | jq
 
 .PHONY: session_client
 session_client: bin/session_client keys/id_rsa keys/hmac.key keys/id_ecdsa
@@ -75,16 +77,16 @@ session_client: bin/session_client keys/id_rsa keys/hmac.key keys/id_ecdsa
 		--key-algo ecdsa-p256-sha256
 	./bin/session_client \
 		--key ./keys/hmac.key \
-		--key-algo hmac-sha256 
+		--key-algo hmac-sha256
 	./bin/session_client \
 		--key ./keys/id_rsa \
-		--key-algo rsa-pss-sha512 
+		--key-algo rsa-pss-sha512
 
 ### GitHub
 
 .PHONY: gh_server
-gh_server: bin/gh_server 
-	./bin/gh_server --usernames micahhausler
+gh_server: bin/gh_server
+	./bin/gh_server $(SERVER_ARGS) --usernames micahhausler | jq .
 
 GH_KEY := ~/.ssh/id_rsa
 
@@ -119,7 +121,7 @@ kind:
 	kind create cluster --config kind.yaml -v2
 
 # reuse front-proxy-client.crt and front-proxy-client.key, would use unique certs in production
-mount/front-proxy-client.crt: 
+mount/front-proxy-client.crt:
 	docker exec -it kind-control-plane cp /etc/kubernetes/pki/front-proxy-client.crt /mount/front-proxy-client.crt
 	docker exec -it kind-control-plane cp /etc/kubernetes/pki/front-proxy-client.key /mount/front-proxy-client.key
 

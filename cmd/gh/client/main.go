@@ -10,15 +10,9 @@ import (
 	"os"
 
 	"github.com/common-fate/httpsig"
+	"github.com/micahhausler/httpsig-scratch/cmd"
 	"github.com/micahhausler/httpsig-scratch/gh"
 )
-
-func init() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}))
-	slog.SetDefault(logger)
-}
 
 type headerRoundTripper struct {
 	transport http.RoundTripper
@@ -38,7 +32,14 @@ func main() {
 	keyFile := flag.String("key", "", "path to private key")
 	host := flag.String("host", "localhost", "host to connect to")
 	port := flag.Int("port", 9091, "port to connect to")
+	logLevel := cmd.LevelFlag(slog.LevelInfo)
+	flag.Var(&logLevel, "log-level", "log level")
 	flag.Parse()
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level:     slog.Level(logLevel),
+		AddSource: slog.Level(logLevel) == slog.LevelDebug,
+	})))
+
 	addr := fmt.Sprintf("http://%s:%d", *host, *port)
 
 	keyData, err := os.ReadFile(*keyFile)
@@ -78,17 +79,35 @@ func main() {
 		header:    headers,
 	}
 
-	res, err := client.Post(addr, "application/json", nil)
-	if err != nil {
-		slog.Error("failed to send request", "error", err)
-		os.Exit(1)
+	{
+		res, err := client.Post(addr, "application/json", nil)
+		if err != nil {
+			slog.Error("failed to send request", "error", err)
+			os.Exit(1)
+		}
+
+		resBytes, err := httputil.DumpResponse(res, true)
+		if err != nil {
+			slog.Error("failed to dump response", "error", err)
+			os.Exit(1)
+		}
+
+		fmt.Println(string(resBytes))
+	}
+	{
+		res, err := client.Get(addr)
+		if err != nil {
+			slog.Error("failed to send request", "error", err)
+			os.Exit(1)
+		}
+
+		resBytes, err := httputil.DumpResponse(res, true)
+		if err != nil {
+			slog.Error("failed to dump response", "error", err)
+			os.Exit(1)
+		}
+
+		fmt.Println(string(resBytes))
 	}
 
-	resBytes, err := httputil.DumpResponse(res, true)
-	if err != nil {
-		slog.Error("failed to dump response", "error", err)
-		os.Exit(1)
-	}
-
-	fmt.Println(string(resBytes))
 }

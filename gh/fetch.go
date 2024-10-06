@@ -45,7 +45,7 @@ func (c *ghClient) getUserKeys(username string) ([][]byte, error) {
 	}
 
 	if ghResp.StatusCode != http.StatusOK {
-		slog.Error("failed to fetch keys", "status", ghResp.Status, "response", string(buf.Bytes()))
+		slog.Error("failed to fetch keys", "status", ghResp.Status, "response", buf.String())
 		return nil, fmt.Errorf("failed to fetch keys: %s", ghResp.Status)
 	}
 

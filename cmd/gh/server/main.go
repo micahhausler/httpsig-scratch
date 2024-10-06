@@ -10,22 +10,22 @@ import (
 	"github.com/common-fate/httpsig"
 	"github.com/common-fate/httpsig/inmemory"
 	"github.com/micahhausler/httpsig-scratch/attributes"
+	"github.com/micahhausler/httpsig-scratch/cmd"
 	"github.com/micahhausler/httpsig-scratch/gh"
 	flag "github.com/spf13/pflag"
 )
 
-func init() {
-	jsonLogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level:     slog.LevelDebug,
-		AddSource: true,
-	}))
-	slog.SetDefault(jsonLogger)
-}
-
 func main() {
 	port := flag.Int("port", 9091, "port to listen on")
 	usernames := flag.StringSlice("usernames", []string{"micahhausler"}, "usernames to allow")
+	logLevel := cmd.LevelFlag(slog.LevelInfo)
+	flag.Var(&logLevel, "log-level", "log level")
 	flag.Parse()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level:     slog.Level(logLevel),
+		AddSource: slog.Level(logLevel) == slog.LevelDebug,
+	})))
+
 	addr := fmt.Sprintf("localhost:%d", *port)
 
 	keyDir, err := gh.NewGitHubKeyDirectory(*usernames)
