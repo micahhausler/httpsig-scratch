@@ -2,6 +2,7 @@ package gh
 
 import (
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/sha512"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 
 	"github.com/common-fate/httpsig/alg_ecdsa"
+	"github.com/common-fate/httpsig/alg_ed25519"
 	"github.com/common-fate/httpsig/alg_rsa"
 	"github.com/common-fate/httpsig/verifier"
 	"github.com/micahhausler/httpsig-scratch/attributes"
@@ -43,6 +45,17 @@ func ConvertSSHPublicKeyToECDSAPublicKey(sshPubKey ssh.PublicKey) (*ecdsa.Public
 		}
 	}
 	return nil, fmt.Errorf("not an ECDSA public key")
+}
+
+func ConvertSSHPublicKeyToED25519PublicKey(sshPubKey ssh.PublicKey) (*ed25519.PublicKey, error) {
+	// Check if the ssh.PublicKey is of type *ssh.CryptoPublicKey
+	if cryptoPubKey, ok := sshPubKey.(ssh.CryptoPublicKey); ok {
+		// Extract the underlying public key
+		if ecdsaPubKey, ok := cryptoPubKey.CryptoPublicKey().(ed25519.PublicKey); ok {
+			return &ecdsaPubKey, nil
+		}
+	}
+	return nil, fmt.Errorf("not an ed25519 public key")
 }
 
 // map of username to key hash to algorithm
@@ -85,19 +98,38 @@ func addKeys(k keysForUsers, username string, keys [][]byte) error {
 				PublicKey: rsaPk,
 				Attrs:     attributes.User{Username: username},
 			})
-		case ssh.KeyAlgoECDSA256:
+		case ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoSKECDSA256:
 			ecdsaPk, err := ConvertSSHPublicKeyToECDSAPublicKey(pubKey)
 			if err != nil {
 				slog.Debug("invalid ecdsa ssh key", "key", key, "username", username, "error", err)
 				continue
 			}
-			algos = append(algos, alg_ecdsa.P256{
-				PublicKey: ecdsaPk,
+			switch ecdsaPk.Curve.Params().Name {
+			case "P-256":
+				algos = append(algos, alg_ecdsa.P256{
+					PublicKey: ecdsaPk,
+					Attrs:     attributes.User{Username: username},
+				})
+			case "P-384":
+				algos = append(algos, alg_ecdsa.P384{
+					PublicKey: ecdsaPk,
+					Attrs:     attributes.User{Username: username},
+				})
+			default:
+				slog.Debug("unsupported ecdsa curve", "curve", ecdsaPk.Curve.Params().Name, "username", username)
+				continue
+			}
+		case ssh.KeyAlgoED25519, ssh.KeyAlgoSKED25519:
+			ed25519Pk, err := ConvertSSHPublicKeyToED25519PublicKey(pubKey)
+			if err != nil {
+				slog.Debug("invalid ed25519 ssh key", "key", key, "username", username, "error", err)
+				continue
+			}
+			algos = append(algos, alg_ed25519.Ed25519{
+				PublicKey: *ed25519Pk,
 				Attrs:     attributes.User{Username: username},
 			})
-		// TODO: handle ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521
 		default:
-			// TODO: handle ssh.KeyAlgoED25519
 			slog.Debug("key type not implemented", "keyType", pubKey.Type(), "username", username)
 			continue
 		}

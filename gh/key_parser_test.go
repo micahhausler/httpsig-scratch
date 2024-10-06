@@ -1,12 +1,17 @@
 package gh
 
 import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha512"
 	"fmt"
 	"testing"
 
+	"github.com/common-fate/httpsig/alg_ecdsa"
+	"github.com/common-fate/httpsig/alg_ed25519"
 	"github.com/common-fate/httpsig/alg_rsa"
 	"github.com/common-fate/httpsig/verifier"
 	"golang.org/x/crypto/ssh"
@@ -14,17 +19,52 @@ import (
 
 func TestAddKeys(t *testing.T) {
 
-	kp, err := rsa.GenerateKey(rand.Reader, 64)
+	rsaKp, err := rsa.GenerateKey(rand.Reader, 64)
 	if err != nil {
-		panic(err)
+		t.Fatalf("Error generating key: %v", err)
 	}
-	kP, err := ssh.NewPublicKey(&kp.PublicKey)
+	rsaKP, err := ssh.NewPublicKey(&rsaKp.PublicKey)
 	if err != nil {
-		panic(err)
+		t.Fatalf("error creating ssh key: %v", err)
 	}
-	testKey := ssh.MarshalAuthorizedKey(kP)
-	testKeyHash := sha512.Sum512(kP.Marshal())
-	testKeyHashString := fmt.Sprintf("%x", testKeyHash)
+	testRSASSHKey := ssh.MarshalAuthorizedKey(rsaKP)
+	testRSASSHKeyHash := sha512.Sum512(rsaKP.Marshal())
+	testRSASSHKeyHashString := fmt.Sprintf("%x", testRSASSHKeyHash)
+
+	ecdsa256Kp, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("Error generating key: %v", err)
+	}
+	ecdsa256KP, err := ssh.NewPublicKey(&ecdsa256Kp.PublicKey)
+	if err != nil {
+		t.Fatalf("error creating ssh key: %v", err)
+	}
+	testECDSA256SSHKey := ssh.MarshalAuthorizedKey(ecdsa256KP)
+	testECDSA256SSHKeyHash := sha512.Sum512(ecdsa256KP.Marshal())
+	testECDSA256SSHKeyHashString := fmt.Sprintf("%x", testECDSA256SSHKeyHash)
+
+	ecdsa384Kp, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		t.Fatalf("Error generating key: %v", err)
+	}
+	ecdsa384KP, err := ssh.NewPublicKey(&ecdsa384Kp.PublicKey)
+	if err != nil {
+		t.Fatalf("error creating ssh key: %v", err)
+	}
+	testECDSA384SSHKey := ssh.MarshalAuthorizedKey(ecdsa384KP)
+	testECDSA384SSHKeyHash := sha512.Sum512(ecdsa384KP.Marshal())
+	testECDSA384SSHKeyHashString := fmt.Sprintf("%x", testECDSA384SSHKeyHash)
+
+	ed25519KP, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("Error generating key: %v", err)
+	}
+	testED25519SSHKey, err := ssh.NewPublicKey(ed25519KP)
+	if err != nil {
+		t.Fatalf("error creating ssh key: %v", err)
+	}
+	testED25519SSHKeyHash := sha512.Sum512(testED25519SSHKey.Marshal())
+	testED25519SSHKeyHashString := fmt.Sprintf("%x", testED25519SSHKeyHash)
 
 	cases := []struct {
 		name            string
@@ -38,21 +78,51 @@ func TestAddKeys(t *testing.T) {
 			"rsa-ssh key",
 			keysForUsers{},
 			"testuser",
-			[][]byte{testKey},
+			[][]byte{testRSASSHKey},
 			map[string][]verifier.Algorithm{
-				testKeyHashString: {alg_rsa.NewRSAPSS512Verifier(&kp.PublicKey)},
+				testRSASSHKeyHashString: {alg_rsa.NewRSAPSS512Verifier(&rsaKp.PublicKey)},
+			},
+			false,
+		},
+		{
+			"ecdsa p256 key",
+			keysForUsers{},
+			"testuser",
+			[][]byte{testECDSA256SSHKey},
+			map[string][]verifier.Algorithm{
+				testECDSA256SSHKeyHashString: {alg_ecdsa.NewP256Verifier(&ecdsa256Kp.PublicKey)},
+			},
+			false,
+		},
+		{
+			"ecdsa p384 key",
+			keysForUsers{},
+			"testuser",
+			[][]byte{testECDSA384SSHKey},
+			map[string][]verifier.Algorithm{
+				testECDSA384SSHKeyHashString: {alg_ecdsa.NewP384Verifier(&ecdsa384Kp.PublicKey)},
+			},
+			false,
+		},
+		{
+			"ed25519 key",
+			keysForUsers{},
+			"testuser",
+			[][]byte{ssh.MarshalAuthorizedKey(testED25519SSHKey)},
+			map[string][]verifier.Algorithm{
+				testED25519SSHKeyHashString: {alg_ed25519.Ed25519{PublicKey: ed25519KP}},
 			},
 			false,
 		},
 		{
 			"key exists",
 			keysForUsers{"testuser": map[string][]verifier.Algorithm{
-				testKeyHashString: {alg_rsa.NewRSAPKCS256Verifier(&kp.PublicKey), alg_rsa.NewRSAPSS512Verifier(&kp.PublicKey)},
+				testRSASSHKeyHashString: {alg_rsa.NewRSAPKCS256Verifier(&rsaKp.PublicKey), alg_rsa.NewRSAPSS512Verifier(&rsaKp.PublicKey)},
 			}},
 			"testuser",
-			[][]byte{testKey},
+			[][]byte{testRSASSHKey},
 			map[string][]verifier.Algorithm{
-				testKeyHashString: {alg_rsa.NewRSAPKCS256Verifier(&kp.PublicKey), alg_rsa.NewRSAPSS512Verifier(&kp.PublicKey)},
+				testRSASSHKeyHashString: {alg_rsa.NewRSAPKCS256Verifier(&rsaKp.PublicKey), alg_rsa.NewRSAPSS512Verifier(&rsaKp.PublicKey)},
 			},
 			false,
 		},
