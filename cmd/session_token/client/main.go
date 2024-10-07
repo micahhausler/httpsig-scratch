@@ -22,6 +22,7 @@ import (
 	"github.com/common-fate/httpsig/signer"
 	"github.com/micahhausler/httpsig-scratch/cmd"
 	"github.com/micahhausler/httpsig-scratch/session"
+	"github.com/micahhausler/httpsig-scratch/transport"
 	flag "github.com/spf13/pflag"
 	"golang.org/x/crypto/ssh"
 )
@@ -168,6 +169,9 @@ func main() {
 		OnDeriveSigningString: func(ctx context.Context, stringToSign string) {
 			slog.Debug("signing string", "string", stringToSign)
 		},
+	})
+	client.Transport = transport.NewTransportWithFallbackHeaders(client.Transport, http.Header{
+		"Content-Type": []string{"application/json"},
 	})
 
 	headers := http.Header{

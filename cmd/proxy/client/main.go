@@ -11,6 +11,7 @@ import (
 	"github.com/common-fate/httpsig"
 	"github.com/common-fate/httpsig/signer"
 	"github.com/micahhausler/httpsig-scratch/gh"
+	"github.com/micahhausler/httpsig-scratch/transport"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -45,6 +46,7 @@ func main() {
 
 	baseTransport := http.DefaultTransport.(*http.Transport)
 	baseTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
 	tport := &signer.Transport{
 		KeyID: algorithm.KeyID(),
 		Tag:   "foo",
@@ -56,8 +58,11 @@ func main() {
 		OnDeriveSigningString: func(ctx context.Context, stringToSign string) {
 			klog.V(4).InfoS("signing string", "string", stringToSign)
 		},
-		BaseTransport: baseTransport,
+		BaseTransport: transport.NewTransportWithFallbackHeaders(baseTransport, http.Header{
+			"Content-Type": []string{"application/json"},
+		}),
 	}
+
 	config.Transport = tport
 
 	// have to set both a client and override the transport, need to debug this and only do one
@@ -73,6 +78,9 @@ func main() {
 		OnDeriveSigningString: func(ctx context.Context, stringToSign string) {
 			klog.V(4).InfoS("signing string", "string", stringToSign)
 		},
+	})
+	client.Transport = transport.NewTransportWithFallbackHeaders(client.Transport, http.Header{
+		"Content-Type": []string{"application/json"},
 	})
 
 	// clientset, err := kubernetes.NewForConfig(config)
@@ -93,16 +101,16 @@ func main() {
 	}
 	fmt.Println(string(data))
 
-	// klog.Info("Listing pods will fail because GET doesn't have content-type/content-length/content-digest headers")
-	// // will fail because GET doesn't have content-type/content-length/content-digest
-	// pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
-	// if err != nil {
-	// 	klog.Fatal("failed to list pods ", err)
-	// }
-	// data, err = yaml.Marshal(pods)
-	// if err != nil {
-	// 	klog.Fatal("failed to marshal pods ", err)
-	// }
-	// fmt.Println(string(data))
+	pods, err := clientset.CoreV1().Pods("kube-system").List(context.TODO(), metav1.ListOptions{
+		Limit: 2,
+	})
+	if err != nil {
+		klog.Fatal("failed to list pods ", err)
+	}
+	data, err = yaml.Marshal(pods)
+	if err != nil {
+		klog.Fatal("failed to marshal pods ", err)
+	}
+	fmt.Println(string(data))
 
 }

@@ -12,21 +12,8 @@ import (
 	"github.com/common-fate/httpsig"
 	"github.com/micahhausler/httpsig-scratch/cmd"
 	"github.com/micahhausler/httpsig-scratch/gh"
+	"github.com/micahhausler/httpsig-scratch/transport"
 )
-
-type headerRoundTripper struct {
-	transport http.RoundTripper
-	header    http.Header
-}
-
-func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	for key, values := range h.header {
-		for _, value := range values {
-			req.Header.Add(key, value)
-		}
-	}
-	return h.transport.RoundTrip(req)
-}
 
 func main() {
 	keyFile := flag.String("key", "", "path to private key")
@@ -58,26 +45,14 @@ func main() {
 		KeyID: algorithm.KeyID(),
 		Tag:   "foo",
 		Alg:   algorithm,
-		CoveredComponents: []string{
-			"@method", "@target-uri", "content-type", "content-length", "content-digest",
-			"x-custom-header",
-		},
 		OnDeriveSigningString: func(ctx context.Context, stringToSign string) {
 			slog.Debug("signing string", "string", stringToSign)
 		},
 	})
 
-	headers := http.Header{
-		"X-Custom-Header": []string{"CustomValue"},
-	}
-	existingTransport := client.Transport
-	if existingTransport == nil {
-		existingTransport = http.DefaultTransport
-	}
-	client.Transport = &headerRoundTripper{
-		transport: existingTransport,
-		header:    headers,
-	}
+	client.Transport = transport.NewTransportWithFallbackHeaders(client.Transport, http.Header{
+		"Content-Type": []string{"application/json"},
+	})
 
 	{
 		res, err := client.Post(addr, "application/json", nil)
