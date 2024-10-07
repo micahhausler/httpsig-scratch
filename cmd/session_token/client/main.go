@@ -43,7 +43,7 @@ func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 
 func main() {
 	keyAlgo := flag.String("key-algo", "", "key algo to use. Use either `ecdsa-p256-sha256`, `hmac-sha256`, or `rsa-pss-sha512`")
-	keyPath := flag.String("key", "", "path to signing key")
+	keyPath := flag.String("key", "", "path to signing key. Only used for public keys")
 	host := flag.String("host", "localhost", "host to connect to")
 	port := flag.Int("port", 9091, "port to connect to")
 	logLevel := cmd.LevelFlag(slog.LevelInfo)
@@ -57,9 +57,11 @@ func main() {
 	addr := fmt.Sprintf("http://%s:%d", *host, *port)
 
 	var (
-		algorithm signer.Algorithm
-		username  string
-		keyBytes  []byte
+		algorithm    signer.Algorithm
+		username     string
+		keyBytes     []byte
+		keyID        string = "kid-123" // everyone uses the same keyID here, use different ids in real life
+		sessionToken string
 	)
 	switch *keyAlgo {
 	case "ecdsa-p256-sha256":
@@ -88,14 +90,34 @@ func main() {
 		username = "alice"
 		slog.Info("Using ecdsa P384 signer", "key-algo", *keyAlgo, "username", username)
 	case "hmac-sha256":
-		var err error
-		keyBytes, err = os.ReadFile(*keyPath)
+		username = "bob"
+		// For HMAC creds, we ask the server for a key and keyid
+		credRequest := &session.CredentialRequest{UserInfo: session.User{Username: username}}
+		slog.Info("Getting HMAC credentials", "request", credRequest)
+		buf := &bytes.Buffer{}
+		json.NewEncoder(buf).Encode(credRequest)
+		sessionTokenResp, err := http.Post(addr+"/hmac-credentials", "application/json", buf)
 		if err != nil {
-			slog.Error("failed to read private key file", "error", err, "path", *keyPath)
+			slog.Error("failed to get credentials", "error", err)
 			os.Exit(1)
 		}
+		resp := &session.CredentialResponse{}
+		err = json.NewDecoder(sessionTokenResp.Body).Decode(resp)
+		if err != nil {
+			slog.Error("failed to decode response", "error", err)
+			os.Exit(1)
+		}
+		sessionTokenResp.Body.Close()
+		if resp.Error != "" {
+			slog.Error("error getting session token", "error", resp.Error)
+			os.Exit(1)
+		}
+
+		keyID = resp.KeyID
+		keyBytes = []byte(resp.SecretKey)
+		sessionToken = string(resp.SessionToken)
 		algorithm = alg_hmac.NewHMAC(keyBytes)
-		username = "bob"
+
 		slog.Info("Using HMAC SHA-256 signer", "key-algo", *keyAlgo, "username", username)
 	case "rsa-pss-sha512":
 		data, err := os.ReadFile(*keyPath)
@@ -128,39 +150,44 @@ func main() {
 		os.Exit(1)
 	}
 
-	encRequest := &session.EncryptionRequest{
-		KeyID:     "kid-123", // everyone uses the same keyID here, use different ids in real life
-		Alg:       algorithm.Type(),
-		PublicKey: string(keyBytes),
-		UserInfo: session.User{
-			Username: username,
-		},
-	}
-	buf := &bytes.Buffer{}
+	// For non HMAC keys, we need to get a session token from the server
+	// by registering the public key
+	if *keyAlgo != "hmac-sha256" {
+		encRequest := &session.EncryptionRequest{
+			KeyID:     keyID,
+			Alg:       algorithm.Type(),
+			PublicKey: string(keyBytes),
+			UserInfo: session.User{
+				Username: username,
+			},
+		}
+		buf := &bytes.Buffer{}
 
-	slog.Info("Creating session token for key", "request", encRequest)
-	// ignore encoding err for now
-	json.NewEncoder(buf).Encode(encRequest)
-	sessionTokenResp, err := http.Post(addr+"/session-token", "application/json", buf)
-	if err != nil {
-		slog.Error("failed to get session token", "error", err)
-		os.Exit(1)
+		slog.Info("Creating session token for key", "request", encRequest)
+		// ignore encoding err for now
+		json.NewEncoder(buf).Encode(encRequest)
+		sessionTokenResp, err := http.Post(addr+"/session-token", "application/json", buf)
+		if err != nil {
+			slog.Error("failed to get session token", "error", err)
+			os.Exit(1)
+		}
+		resp := &session.EncryptionResponse{}
+		err = json.NewDecoder(sessionTokenResp.Body).Decode(resp)
+		if err != nil {
+			slog.Error("failed to decode response", "error", err)
+			os.Exit(1)
+		}
+		sessionTokenResp.Body.Close()
+		if resp.Error != "" {
+			slog.Error("error getting session token", "error", resp.Error)
+			os.Exit(1)
+		}
+		slog.Info("Got encrypted session token from server")
+		sessionToken = string(resp.SessionToken)
 	}
-	resp := &session.EncryptionResponse{}
-	err = json.NewDecoder(sessionTokenResp.Body).Decode(resp)
-	if err != nil {
-		slog.Error("failed to decode response", "error", err)
-		os.Exit(1)
-	}
-	sessionTokenResp.Body.Close()
-	if resp.Error != "" {
-		slog.Error("error getting session token", "error", resp.Error)
-		os.Exit(1)
-	}
-	slog.Info("Got encrypted session token from server")
 
 	client := httpsig.NewClient(httpsig.ClientOpts{
-		KeyID: "kid-123", // everyone uses the same keyID here, use different ids in real life
+		KeyID: keyID,
 		Tag:   "foo",
 		Alg:   algorithm,
 		CoveredComponents: []string{
@@ -175,7 +202,7 @@ func main() {
 	})
 
 	headers := http.Header{
-		"x-session-token": []string{string(resp.SessionToken)},
+		"x-session-token": []string{sessionToken},
 	}
 	existingTransport := client.Transport
 	if existingTransport == nil {

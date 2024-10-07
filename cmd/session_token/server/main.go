@@ -91,6 +91,7 @@ func main() {
 	sessionTokenDecryptingMiddleware := decService.GetSessionTokenDecryptingMiddleware()
 
 	mux.Handle("/session-token", encService.SessionTokenHandler())
+	mux.Handle("/hmac-credentials", encService.NewCredentialHandler())
 	mux.Handle("/",
 		sessionTokenDecryptingMiddleware(
 			verifier(
