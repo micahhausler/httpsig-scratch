@@ -42,7 +42,7 @@ func NewGHSigner(keydata []byte) (*GitHubSigner, error) {
 	if err != nil {
 		return nil, err
 	}
-	// TODO: Is this marshalling consistent
+	// TODO: Is this marshalling consistent?
 	keyHash := sha512.Sum512(signer.PublicKey().Marshal())
 
 	return &GitHubSigner{

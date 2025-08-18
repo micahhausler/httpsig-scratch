@@ -9,8 +9,11 @@ bin/gh_server:
 bin/proxy_server:
 	go build -o bin/proxy_server cmd/proxy/server/main.go
 
+bin/kubecon_server:
+	go build -o bin/kubecon_server cmd/kubecon/server/main.go
+
 .PHONY: build_server
-build_server: bin/session_server bin/gh_server bin/proxy_server
+build_server: bin/session_server bin/gh_server bin/kubecon_server bin/proxy_server
 
 bin/session_client:
 	go build -o bin/session_client cmd/session_token/client/main.go
@@ -21,8 +24,11 @@ bin/gh_client:
 bin/proxy_client:
 	go build -o bin/proxy_client cmd/proxy/client/main.go
 
+bin/kubecon_client:
+	go build -o bin/kubecon_client cmd/kubecon/client/main.go
+
 .PHONY: build_client
-build_client: bin/session_client bin/gh_client bin/proxy_client
+build_client: bin/session_client bin/gh_client bin/proxy_client bin/kubecon_client
 
 .PHONY: build
 build: build_server build_client

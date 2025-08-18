@@ -3,6 +3,7 @@ module github.com/micahhausler/httpsig-scratch
 go 1.23.1
 
 require (
+	github.com/aoliveti/curling v1.1.0
 	github.com/common-fate/httpsig v0.2.0
 	github.com/spf13/pflag v1.0.5
 	golang.org/x/crypto v0.27.0

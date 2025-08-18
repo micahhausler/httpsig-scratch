@@ -16,18 +16,18 @@ func init() {
 	slog.SetDefault(jsonLogger)
 }
 
-type ghClient struct {
+type GitHubClient struct {
 	cli http.Client
 }
 
-func newGhClient() *ghClient {
-	return &ghClient{
+func NewGitHubClient() *GitHubClient {
+	return &GitHubClient{
 		cli: http.Client{},
 	}
 }
 
-// getUserKeys fetches the public keys for a given GitHub user
-func (c *ghClient) getUserKeys(username string) ([][]byte, error) {
+// GetUserKeys fetches the public keys for a given GitHub user
+func (c *GitHubClient) GetUserKeys(username string) ([][]byte, error) {
 	// TODO: input sanitization
 	uri := "https://github.com/" + username + ".keys"
 

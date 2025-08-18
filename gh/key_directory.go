@@ -15,11 +15,11 @@ type GitHubKeyDirectory struct {
 var _ verifier.KeyDirectory = &GitHubKeyDirectory{}
 
 func NewGitHubKeyDirectory(usernames []string) (*GitHubKeyDirectory, error) {
-	client := newGhClient()
+	client := NewGitHubClient()
 	allKeys := map[string]map[string][]verifier.Algorithm{}
 
 	for _, username := range usernames {
-		keys, err := client.getUserKeys(username)
+		keys, err := client.GetUserKeys(username)
 		if err != nil {
 			return nil, err
 		}
@@ -32,8 +32,8 @@ func NewGitHubKeyDirectory(usernames []string) (*GitHubKeyDirectory, error) {
 }
 
 func (d *GitHubKeyDirectory) AddUserKeys(username string) error {
-	client := newGhClient()
-	keys, err := client.getUserKeys(username)
+	client := NewGitHubClient()
+	keys, err := client.GetUserKeys(username)
 	if err != nil {
 		return err
 	}
