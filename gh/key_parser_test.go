@@ -10,16 +10,13 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/common-fate/httpsig/alg_ecdsa"
-	"github.com/common-fate/httpsig/alg_ed25519"
-	"github.com/common-fate/httpsig/alg_rsa"
-	"github.com/common-fate/httpsig/verifier"
+	"github.com/micahhausler/httpsig"
 	"golang.org/x/crypto/ssh"
 )
 
 func TestAddKeys(t *testing.T) {
 
-	rsaKp, err := rsa.GenerateKey(rand.Reader, 64)
+	rsaKp, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("Error generating key: %v", err)
 	}
@@ -30,6 +27,11 @@ func TestAddKeys(t *testing.T) {
 	testRSASSHKey := ssh.MarshalAuthorizedKey(rsaKP)
 	testRSASSHKeyHash := sha512.Sum512(rsaKP.Marshal())
 	testRSASSHKeyHashString := fmt.Sprintf("%x", testRSASSHKeyHash)
+
+	rsaVerifier, err := httpsig.NewVerifier(httpsig.RSAPSSSHA512, &rsaKp.PublicKey)
+	if err != nil {
+		t.Fatalf("error creating verifier: %v", err)
+	}
 
 	ecdsa256Kp, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -71,7 +73,7 @@ func TestAddKeys(t *testing.T) {
 		k               keysForUsers
 		username        string
 		keys            [][]byte
-		wantForUsername map[string][]verifier.Algorithm
+		wantForUsername map[string]httpsig.Algorithm
 		wantErr         bool
 	}{
 		{
@@ -79,8 +81,8 @@ func TestAddKeys(t *testing.T) {
 			keysForUsers{},
 			"testuser",
 			[][]byte{testRSASSHKey},
-			map[string][]verifier.Algorithm{
-				testRSASSHKeyHashString: {alg_rsa.NewRSAPSS512Verifier(&rsaKp.PublicKey)},
+			map[string]httpsig.Algorithm{
+				testRSASSHKeyHashString: httpsig.RSAPSSSHA512,
 			},
 			false,
 		},
@@ -89,8 +91,8 @@ func TestAddKeys(t *testing.T) {
 			keysForUsers{},
 			"testuser",
 			[][]byte{testECDSA256SSHKey},
-			map[string][]verifier.Algorithm{
-				testECDSA256SSHKeyHashString: {alg_ecdsa.NewP256Verifier(&ecdsa256Kp.PublicKey)},
+			map[string]httpsig.Algorithm{
+				testECDSA256SSHKeyHashString: httpsig.ECDSAP256SHA256,
 			},
 			false,
 		},
@@ -99,8 +101,8 @@ func TestAddKeys(t *testing.T) {
 			keysForUsers{},
 			"testuser",
 			[][]byte{testECDSA384SSHKey},
-			map[string][]verifier.Algorithm{
-				testECDSA384SSHKeyHashString: {alg_ecdsa.NewP384Verifier(&ecdsa384Kp.PublicKey)},
+			map[string]httpsig.Algorithm{
+				testECDSA384SSHKeyHashString: httpsig.ECDSAP384SHA384,
 			},
 			false,
 		},
@@ -109,47 +111,39 @@ func TestAddKeys(t *testing.T) {
 			keysForUsers{},
 			"testuser",
 			[][]byte{ssh.MarshalAuthorizedKey(testED25519SSHKey)},
-			map[string][]verifier.Algorithm{
-				testED25519SSHKeyHashString: {alg_ed25519.Ed25519{PublicKey: ed25519KP}},
+			map[string]httpsig.Algorithm{
+				testED25519SSHKeyHashString: httpsig.Ed25519,
 			},
 			false,
 		},
 		{
 			"key exists",
-			keysForUsers{"testuser": map[string][]verifier.Algorithm{
-				testRSASSHKeyHashString: {alg_rsa.NewRSAPKCS256Verifier(&rsaKp.PublicKey), alg_rsa.NewRSAPSS512Verifier(&rsaKp.PublicKey)},
+			keysForUsers{"testuser": map[string]httpsig.Verifier{
+				testRSASSHKeyHashString: rsaVerifier,
 			}},
 			"testuser",
 			[][]byte{testRSASSHKey},
-			map[string][]verifier.Algorithm{
-				testRSASSHKeyHashString: {alg_rsa.NewRSAPKCS256Verifier(&rsaKp.PublicKey), alg_rsa.NewRSAPSS512Verifier(&rsaKp.PublicKey)},
+			map[string]httpsig.Algorithm{
+				testRSASSHKeyHashString: httpsig.RSAPSSSHA512,
 			},
 			false,
 		},
 		{
 			"invalid key",
-			keysForUsers{"testuser": map[string][]verifier.Algorithm{}},
+			keysForUsers{"testuser": map[string]httpsig.Verifier{}},
 			"testuser",
 			[][]byte{[]byte(`ssh-rsa invalid`)},
-			map[string][]verifier.Algorithm{},
+			map[string]httpsig.Algorithm{},
 			false,
 		},
 		{
 			"invalid authorized key",
-			keysForUsers{"testuser": map[string][]verifier.Algorithm{}},
+			keysForUsers{"testuser": map[string]httpsig.Verifier{}},
 			"testuser",
 			[][]byte{[]byte(`invalid`)},
-			map[string][]verifier.Algorithm{},
+			map[string]httpsig.Algorithm{},
 			false,
 		},
-		// {
-		// 	"not implemented",
-		// 	keysForUsers{"testuser": map[string][]verifier.Algorithm{}},
-		// 	"testuser",
-		// 	[][]byte{[]byte(`ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBCZiXXZwdWUD9GxHNHahq+AwJMcV9OiHreuthqadCxvXBrbX07wkwDlqcPMSnh4Q7b3e5yrtVqulb73QLblpsP4=`)},
-		// 	map[string][]verifier.Algorithm{},
-		// 	false,
-		// },
 	}
 
 	for _, tc := range cases {
@@ -166,7 +160,6 @@ func TestAddKeys(t *testing.T) {
 				t.Error("expected error, got none")
 				return
 			}
-			// check that desired key count is present
 
 			if len(tc.k[tc.username]) != len(tc.wantForUsername) {
 				t.Errorf("expected %v keys, got %v", len(tc.wantForUsername), len(tc.k[tc.username]))
@@ -174,10 +167,14 @@ func TestAddKeys(t *testing.T) {
 				return
 			}
 
-			for kid, algos := range tc.wantForUsername {
-				if len(tc.k[tc.username][kid]) != len(algos) {
-					t.Errorf("expected algo count for key %s to be %d to be, got %d", kid, len(algos), len(tc.k[tc.username][kid]))
-					return
+			for kid, wantAlg := range tc.wantForUsername {
+				got, ok := tc.k[tc.username][kid]
+				if !ok {
+					t.Errorf("expected key %s to be present", kid)
+					continue
+				}
+				if got.Algorithm() != wantAlg {
+					t.Errorf("expected key %s to have algorithm %s, got %s", kid, wantAlg, got.Algorithm())
 				}
 			}
 		})

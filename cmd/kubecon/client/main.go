@@ -1,19 +1,20 @@
 package main
 
 import (
-	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/aoliveti/curling"
-	"github.com/common-fate/httpsig/signer"
+	"github.com/micahhausler/httpsig"
 	"github.com/micahhausler/httpsig-scratch/cmd"
 	"github.com/micahhausler/httpsig-scratch/gh"
-	"github.com/micahhausler/httpsig-scratch/transport"
 )
 
 func main() {
@@ -37,50 +38,49 @@ func main() {
 		os.Exit(1)
 	}
 
-	algorithm, err := gh.NewGHSigner(keyData)
+	signer, err := gh.NewGHSigner(keyData)
 	if err != nil {
 		slog.Error("failed to create signer", "error", err)
 		os.Exit(1)
 	}
 
-	signer := gh.NewRequestSigner(signer.Transport{
-		KeyID: algorithm.KeyID(),
-		Tag:   "foo",
-		Alg:   algorithm,
-		CoveredComponents: []string{
-			"@method",
-			"@target-uri",
-			"content-type",
-			// "content-length",
-			// "content-digest",
-			"x-github-username",
-		},
-		BaseTransport: transport.NewTransportWithFallbackHeaders(http.DefaultTransport, http.Header{
-			"Content-Type": []string{"application/json"},
-		}),
-		OnDeriveSigningString: func(ctx context.Context, stringToSign string) {
-			slog.Debug("signing string", "string", stringToSign)
-		},
-	})
-
 	req, err := http.NewRequest(http.MethodPost, addr, nil)
-	req.Header.Add("X-GitHub-Username", *username)
-	req.Header.Add("Content-Type", "application/json")
 	if err != nil {
 		slog.Error("Failed to create request", "error", err.Error())
 		os.Exit(1)
 	}
-	req2, err := signer.SignRequest(req)
+	req.Header.Add("X-GitHub-Username", *username)
+	req.Header.Add("Content-Type", "application/json")
+
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		slog.Error("Failed to generate nonce", "error", err.Error())
+		os.Exit(1)
+	}
+
+	err = httpsig.Sign(req, signer, httpsig.SignOptions{
+		Components: []httpsig.Component{
+			{Name: "@method"},
+			{Name: "@target-uri"},
+			{Name: "content-type"},
+			{Name: "x-github-username"},
+		},
+		KeyID:      signer.KeyID(),
+		Tag:        "foo",
+		Nonce:      base64.RawURLEncoding.EncodeToString(nonce),
+		Expires:    time.Now().Add(5 * time.Minute),
+		IncludeAlg: true,
+	})
 	if err != nil {
 		slog.Error("Failed to sign request", "error", err.Error())
 		os.Exit(1)
 	}
 
-	cmd, err := curling.NewFromRequest(req2)
+	command, err := curling.NewFromRequest(req)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Println(cmd)
+	fmt.Println(command)
 
 }

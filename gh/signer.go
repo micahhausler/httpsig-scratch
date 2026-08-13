@@ -1,71 +1,71 @@
 package gh
 
 import (
-	"context"
 	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rsa"
 	"crypto/sha512"
 	"fmt"
-	"log/slog"
 
-	"github.com/common-fate/httpsig/alg_ecdsa"
-	"github.com/common-fate/httpsig/alg_rsa"
-	"github.com/common-fate/httpsig/contentdigest"
-	"github.com/common-fate/httpsig/signer"
+	"github.com/micahhausler/httpsig"
 	"golang.org/x/crypto/ssh"
 )
 
+// GitHubSigner is an httpsig.Signer backed by an SSH private key. Its key ID
+// is the hex SHA-512 of the SSH wire-format public key, the same ID the
+// server-side directory derives from github.com/<user>.keys.
 type GitHubSigner struct {
-	algo  signer.Algorithm
-	keyId string
+	httpsig.Signer
+	keyID string
 }
 
+// NewGHSigner parses an SSH private key and returns a signer for it.
 func NewGHSigner(keydata []byte) (*GitHubSigner, error) {
 	kp, err := ssh.ParseRawPrivateKey(keydata)
 	if err != nil {
 		return nil, err
 	}
 
-	var algo signer.Algorithm
-	switch keyType := kp.(type) {
+	var alg httpsig.Algorithm
+	var key any = kp
+	switch k := kp.(type) {
 	case *rsa.PrivateKey:
-		slog.Debug("using RSA key")
-		algo = alg_rsa.NewRSAPSS512Signer(kp.(*rsa.PrivateKey))
+		alg = httpsig.RSAPSSSHA512
 	case *ecdsa.PrivateKey:
-		slog.Debug("using ECDSA key")
-		algo = alg_ecdsa.NewP256Signer(kp.(*ecdsa.PrivateKey))
+		switch k.Curve {
+		case elliptic.P256():
+			alg = httpsig.ECDSAP256SHA256
+		case elliptic.P384():
+			alg = httpsig.ECDSAP384SHA384
+		default:
+			return nil, fmt.Errorf("unsupported ecdsa curve: %s", k.Curve.Params().Name)
+		}
+	case *ed25519.PrivateKey:
+		alg = httpsig.Ed25519
+		key = *k
 	default:
-		return nil, fmt.Errorf("unsupported key type: %T", keyType)
+		return nil, fmt.Errorf("unsupported key type: %T", kp)
 	}
 
-	signer, err := ssh.ParsePrivateKey(keydata)
+	signer, err := httpsig.NewSigner(alg, key)
 	if err != nil {
 		return nil, err
 	}
-	// TODO: Is this marshalling consistent?
-	keyHash := sha512.Sum512(signer.PublicKey().Marshal())
+
+	sshSigner, err := ssh.ParsePrivateKey(keydata)
+	if err != nil {
+		return nil, err
+	}
+	keyHash := sha512.Sum512(sshSigner.PublicKey().Marshal())
 
 	return &GitHubSigner{
-		algo:  algo,
-		keyId: fmt.Sprintf("%x", keyHash),
+		Signer: signer,
+		keyID:  fmt.Sprintf("%x", keyHash),
 	}, nil
 }
 
-// TODO: prefix username in front of keyhash?
+// KeyID returns the hex SHA-512 of the SSH wire-format public key.
 func (s *GitHubSigner) KeyID() string {
-	return s.keyId
+	return s.keyID
 }
-
-func (s *GitHubSigner) Sign(ctx context.Context, stringToSign string) ([]byte, error) {
-	return s.algo.Sign(ctx, stringToSign)
-}
-
-func (s *GitHubSigner) Type() string {
-	return s.algo.Type()
-}
-
-func (s *GitHubSigner) ContentDigest() contentdigest.Digester {
-	return s.algo.ContentDigest()
-}
-
-var _ signer.Algorithm = &GitHubSigner{}

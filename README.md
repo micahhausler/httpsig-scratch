@@ -182,7 +182,9 @@ status:
 
 ## Notes
 
-I'm starting with https://github.com/common-fate/httpsig but want to also try some other libraries:
+This started with https://github.com/common-fate/httpsig, and now uses
+https://github.com/micahhausler/httpsig (backed by
+https://github.com/micahhausler/sfv). Other libraries considered:
 
 * https://github.com/remitly-oss/httpsig-go
 * https://github.com/yaronf/httpsign
@@ -196,9 +198,11 @@ Tasks:
   - [x] Get client signer to sign with SSH RSA or ECDSA Key
 - [x] Session Token example server
   - [x] alternate endpoint to create a token
-  - [x] middleware to embed token in context 
+  - [x] key directory decrypts the token from the request header during key resolution (no context middleware needed)
 - [x] Kubernetes authenticating proxy
   - [x] Get an example server and client up and running with kind
-  - [ ] Figure out how to define the http client's Transport only once: right now its in client and config construction
-  - [ ] Impose specific signature base from the server per endpoint (ex: `GET` doesn't need content-type/-length/-digest)
+  - [x] Figure out how to define the http client's Transport only once: `client.NewTransport` is set once on the rest.Config
+  - [x] Impose specific signature base from the server per endpoint: `contentDigest: when-body` covers the body exactly when one is present, so one profile/policy pair serves both GETs and POSTs
   - [ ] Define a signature input format for the client, including algo that can be read from kubeconfig
+    - [x] serializable signature input format: `sigconfig.SigningProfile`
+    - [ ] read the profile from kubeconfig

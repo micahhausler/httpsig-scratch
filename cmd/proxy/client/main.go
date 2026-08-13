@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
-	"github.com/common-fate/httpsig"
-	"github.com/common-fate/httpsig/signer"
 	"github.com/micahhausler/httpsig-scratch/gh"
-	"github.com/micahhausler/httpsig-scratch/transport"
+	"github.com/micahhausler/httpsig/client"
+	"github.com/micahhausler/httpsig/sigconfig"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -32,7 +32,7 @@ func main() {
 		klog.Fatal("failed to read key file ", err)
 	}
 
-	algorithm, err := gh.NewGHSigner(keyData)
+	signer, err := gh.NewGHSigner(keyData)
 	if err != nil {
 		klog.Fatal("failed to create signer ", err)
 	}
@@ -44,49 +44,26 @@ func main() {
 	// strip out any auth from kubeconfig
 	config = rest.AnonymousClientConfig(config)
 
-	baseTransport := http.DefaultTransport.(*http.Transport)
+	baseTransport := http.DefaultTransport.(*http.Transport).Clone()
 	baseTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 
-	tport := &signer.Transport{
-		KeyID: algorithm.KeyID(),
-		Tag:   "foo",
-		Alg:   algorithm,
-		// CoveredComponents: []string{
-		// 	"@method", "@target-uri", "content-type", "content-length", "content-digest",
-		// 	"user-agent", "accept",
-		// },
-		OnDeriveSigningString: func(ctx context.Context, stringToSign string) {
-			klog.V(4).InfoS("signing string", "string", stringToSign)
-		},
-		BaseTransport: transport.NewTransportWithFallbackHeaders(baseTransport, http.Header{
-			"Content-Type": []string{"application/json"},
-		}),
+	// default coverage is @method and @target-uri; the body is bound with
+	// a Content-Digest header whenever a request has one
+	profile := sigconfig.SigningProfile{
+		KeyID:      signer.KeyID(),
+		Tag:        "foo",
+		TTL:        sigconfig.Duration(5 * time.Minute),
+		IncludeAlg: true,
 	}
-
-	config.Transport = tport
-
-	// have to set both a client and override the transport, need to debug this and only do one
-	client := httpsig.NewClient(httpsig.ClientOpts{
-		KeyID: algorithm.KeyID(),
-		Tag:   "foo",
-		Alg:   algorithm,
-		// TODO: Alter for GET requests that don't have content-type/content-length/content-digest
-		// CoveredComponents: []string{
-		// 	"@method", "@target-uri", "content-type", "content-length", "content-digest",
-		// 	"user-agent", "accept",
-		// },
-		OnDeriveSigningString: func(ctx context.Context, stringToSign string) {
-			klog.V(4).InfoS("signing string", "string", stringToSign)
-		},
-	})
-	client.Transport = transport.NewTransportWithFallbackHeaders(client.Transport, http.Header{
-		"Content-Type": []string{"application/json"},
-	})
-
-	// clientset, err := kubernetes.NewForConfig(config)
-	clientset, err := kubernetes.NewForConfigAndClient(config, client)
+	rt, err := client.NewTransport(baseTransport, signer, profile)
 	if err != nil {
-		klog.Fatal("failed to read kubeconfig ", err)
+		klog.Fatal("failed to create signing transport ", err)
+	}
+	config.Transport = rt
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		klog.Fatal("failed to create client ", err)
 	}
 
 	klog.Info("Creating self subject review, `kubectl auth whoami`")

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/x509"
@@ -14,32 +13,18 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"time"
 
-	"github.com/common-fate/httpsig"
-	"github.com/common-fate/httpsig/alg_ecdsa"
-	"github.com/common-fate/httpsig/alg_hmac"
-	"github.com/common-fate/httpsig/alg_rsa"
-	"github.com/common-fate/httpsig/signer"
+	"github.com/micahhausler/httpsig"
+	"github.com/micahhausler/httpsig-scratch/attributes"
 	"github.com/micahhausler/httpsig-scratch/cmd"
 	"github.com/micahhausler/httpsig-scratch/session"
 	"github.com/micahhausler/httpsig-scratch/transport"
+	"github.com/micahhausler/httpsig/client"
+	"github.com/micahhausler/httpsig/sigconfig"
 	flag "github.com/spf13/pflag"
 	"golang.org/x/crypto/ssh"
 )
-
-type headerRoundTripper struct {
-	transport http.RoundTripper
-	header    http.Header
-}
-
-func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	for key, values := range h.header {
-		for _, value := range values {
-			req.Header.Add(key, value)
-		}
-	}
-	return h.transport.RoundTrip(req)
-}
 
 func main() {
 	keyAlgo := flag.String("key-algo", "", "key algo to use. Use either `ecdsa-p256-sha256`, `hmac-sha256`, or `rsa-pss-sha512`")
@@ -57,14 +42,16 @@ func main() {
 	addr := fmt.Sprintf("http://%s:%d", *host, *port)
 
 	var (
-		algorithm    signer.Algorithm
+		alg          httpsig.Algorithm = httpsig.Algorithm(*keyAlgo)
+		signer       httpsig.Signer
 		username     string
 		keyBytes     []byte
 		keyID        string = "kid-123" // everyone uses the same keyID here, use different ids in real life
 		sessionToken string
+		err          error
 	)
-	switch *keyAlgo {
-	case "ecdsa-p256-sha256":
+	switch alg {
+	case httpsig.ECDSAP256SHA256:
 		data, err := os.ReadFile(*keyPath)
 		if err != nil {
 			slog.Error("failed to read private key file", "error", err, "path", *keyPath)
@@ -80,7 +67,11 @@ func main() {
 			slog.Error("not an ecdsa private key")
 			os.Exit(1)
 		}
-		algorithm = alg_ecdsa.NewP256Signer(key)
+		signer, err = httpsig.NewSigner(alg, key)
+		if err != nil {
+			slog.Error("failed to create signer", "error", err)
+			os.Exit(1)
+		}
 		derBytes, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
 		if err != nil {
 			slog.Error("failed to marshal public key", "error", err)
@@ -88,11 +79,11 @@ func main() {
 		}
 		keyBytes = pem.EncodeToMemory(&pem.Block{Type: "ECDSA PUBLIC KEY", Bytes: derBytes})
 		username = "alice"
-		slog.Info("Using ecdsa P384 signer", "key-algo", *keyAlgo, "username", username)
-	case "hmac-sha256":
+		slog.Info("Using ecdsa P256 signer", "key-algo", *keyAlgo, "username", username)
+	case httpsig.HMACSHA256:
 		username = "bob"
 		// For HMAC creds, we ask the server for a key and keyid
-		credRequest := &session.CredentialRequest{UserInfo: session.User{Username: username}}
+		credRequest := &session.CredentialRequest{UserInfo: attributes.User{Username: username}}
 		slog.Info("Getting HMAC credentials", "request", credRequest)
 		buf := &bytes.Buffer{}
 		json.NewEncoder(buf).Encode(credRequest)
@@ -116,10 +107,14 @@ func main() {
 		keyID = resp.KeyID
 		keyBytes = []byte(resp.SecretKey)
 		sessionToken = string(resp.SessionToken)
-		algorithm = alg_hmac.NewHMAC(keyBytes)
+		signer, err = httpsig.NewSigner(alg, keyBytes)
+		if err != nil {
+			slog.Error("failed to create signer", "error", err)
+			os.Exit(1)
+		}
 
 		slog.Info("Using HMAC SHA-256 signer", "key-algo", *keyAlgo, "username", username)
-	case "rsa-pss-sha512":
+	case httpsig.RSAPSSSHA512:
 		data, err := os.ReadFile(*keyPath)
 		if err != nil {
 			slog.Error("failed to read private key file", "error", err, "path", *keyPath)
@@ -135,7 +130,11 @@ func main() {
 			slog.Error("not an rsa private key")
 			os.Exit(1)
 		}
-		algorithm = alg_rsa.NewRSAPSS512Signer(key)
+		signer, err = httpsig.NewSigner(alg, key)
+		if err != nil {
+			slog.Error("failed to create signer", "error", err)
+			os.Exit(1)
+		}
 
 		derBytes, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
 		if err != nil {
@@ -152,12 +151,12 @@ func main() {
 
 	// For non HMAC keys, we need to get a session token from the server
 	// by registering the public key
-	if *keyAlgo != "hmac-sha256" {
+	if alg != httpsig.HMACSHA256 {
 		encRequest := &session.EncryptionRequest{
 			KeyID:     keyID,
-			Alg:       algorithm.Type(),
+			Alg:       string(alg),
 			PublicKey: string(keyBytes),
-			UserInfo: session.User{
+			UserInfo: attributes.User{
 				Username: username,
 			},
 		}
@@ -186,34 +185,37 @@ func main() {
 		sessionToken = string(resp.SessionToken)
 	}
 
-	client := httpsig.NewClient(httpsig.ClientOpts{
-		KeyID: keyID,
-		Tag:   "foo",
-		Alg:   algorithm,
-		CoveredComponents: []string{
-			"@method", "@target-uri", "content-type", "content-length", "content-digest", "x-session-token",
+	profile := sigconfig.SigningProfile{
+		Coverage: sigconfig.Coverage{
+			Components: []string{
+				`"@method"`,
+				`"@target-uri"`,
+				`"content-type"`,
+				`"x-session-token"`,
+			},
+			ContentDigest: sigconfig.DigestAlways,
 		},
-		OnDeriveSigningString: func(ctx context.Context, stringToSign string) {
-			slog.Debug("signing string", "string", stringToSign)
-		},
-	})
-	client.Transport = transport.NewTransportWithFallbackHeaders(client.Transport, http.Header{
-		"Content-Type": []string{"application/json"},
-	})
-
-	headers := http.Header{
-		"x-session-token": []string{sessionToken},
+		KeyID:      keyID,
+		Tag:        "foo",
+		TTL:        sigconfig.Duration(5 * time.Minute),
+		Nonce:      true,
+		IncludeAlg: true,
 	}
-	existingTransport := client.Transport
-	if existingTransport == nil {
-		existingTransport = http.DefaultTransport
-	}
-	client.Transport = &headerRoundTripper{
-		transport: existingTransport,
-		header:    headers,
+	rt, err := client.NewTransport(nil, signer, profile)
+	if err != nil {
+		slog.Error("failed to create signing transport", "error", err)
+		os.Exit(1)
 	}
 
-	res, err := client.Post(addr, "application/json", nil)
+	// fallback headers are added before signing so they are covered
+	httpClient := &http.Client{
+		Transport: transport.NewTransportWithFallbackHeaders(rt, http.Header{
+			"Content-Type":    []string{"application/json"},
+			"X-Session-Token": []string{sessionToken},
+		}),
+	}
+
+	res, err := httpClient.Post(addr, "application/json", nil)
 	if err != nil {
 		slog.Error("failed to send request", "error", err)
 		os.Exit(1)

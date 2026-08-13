@@ -1,22 +1,26 @@
 package gh
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 
-	"github.com/common-fate/httpsig/verifier"
+	"github.com/micahhausler/httpsig"
+	"github.com/micahhausler/httpsig-scratch/attributes"
+	"github.com/micahhausler/httpsig/server"
 )
 
+// GitHubKeyDirectory resolves signatures against the SSH public keys of a
+// fixed set of GitHub users, fetched once at construction.
 type GitHubKeyDirectory struct {
 	keysForUsers keysForUsers
 }
 
-var _ verifier.KeyDirectory = &GitHubKeyDirectory{}
+var _ server.KeyDirectory[attributes.User] = &GitHubKeyDirectory{}
 
 func NewGitHubKeyDirectory(usernames []string) (*GitHubKeyDirectory, error) {
 	client := NewGitHubClient()
-	allKeys := map[string]map[string][]verifier.Algorithm{}
+	allKeys := keysForUsers{}
 
 	for _, username := range usernames {
 		keys, err := client.GetUserKeys(username)
@@ -31,41 +35,13 @@ func NewGitHubKeyDirectory(usernames []string) (*GitHubKeyDirectory, error) {
 	}, nil
 }
 
-func (d *GitHubKeyDirectory) AddUserKeys(username string) error {
-	client := NewGitHubClient()
-	keys, err := client.GetUserKeys(username)
-	if err != nil {
-		return err
-	}
-	return addKeys(d.keysForUsers, username, keys)
-}
-
-func (d *GitHubKeyDirectory) GetKey(ctx context.Context, kid string, clientSpecifiedAlg string) (verifier.Algorithm, error) {
-	users := []string{}
-	algos := []verifier.Algorithm{}
+func (d *GitHubKeyDirectory) Key(req *http.Request, sig *httpsig.Signature) (httpsig.Verifier, attributes.User, error) {
+	kid := sig.KeyID()
 	for user, keys := range d.keysForUsers {
-		users = append(users, user)
-		for key, keyAlgos := range keys {
-			if key != kid {
-				continue
-			}
-			for _, alg := range keyAlgos {
-				if alg.Type() == clientSpecifiedAlg {
-					algos = append(algos, keyAlgos...)
-				}
-			}
+		if verifier, ok := keys[kid]; ok {
+			return verifier, attributes.User{Username: user}, nil
 		}
 	}
-	if len(algos) == 0 {
-		slog.Error("No keys found for request", "kid", kid, "alg", clientSpecifiedAlg)
-		return nil, fmt.Errorf("no keys found for request")
-	}
-
-	// multiple users registered this key
-	if len(users) > 1 {
-		// TODO: create a new verifier.Algorithm that can handle multiple keys for the same id/alg
-		// and try to verify with each one.
-		slog.Info("multiple users registered key", "users", users, "kid", kid)
-	}
-	return &ghAlgo{algos: algos, validAlgoId: -1}, nil
+	slog.Error("No keys found for request", "kid", kid)
+	return nil, attributes.User{}, fmt.Errorf("no keys found for request")
 }

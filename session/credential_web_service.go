@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+
+	"github.com/micahhausler/httpsig-scratch/attributes"
 )
 
 func createCredentials() (string, string, error) {
@@ -30,7 +32,7 @@ func createCredentials() (string, string, error) {
 }
 
 type CredentialRequest struct {
-	UserInfo User `json:"user_info"`
+	UserInfo attributes.User `json:"user_info"`
 }
 
 type CredentialResponse struct {

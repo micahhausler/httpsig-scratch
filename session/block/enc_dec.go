@@ -12,10 +12,10 @@ import (
 
 // SessionToken is an internal format that for serializing sesion token information for encryption
 type SessionToken struct {
-	KeyID      string `json:"key_id"`
-	Alg        string `json:"alg"`
-	PublicKey  []byte `json:"public_key"`
-	Attributes any    `json:"attributes"`
+	KeyID      string          `json:"key_id"`
+	Alg        string          `json:"alg"`
+	PublicKey  []byte          `json:"public_key"`
+	Attributes json.RawMessage `json:"attributes"`
 }
 
 type BlockEncrypterDecrypter struct {
@@ -27,12 +27,16 @@ func NewBlockSessionEncrypterDecrypter(block cipher.Block) session.EncrypterDecr
 }
 
 func (e *BlockEncrypterDecrypter) EncryptPublicKey(ctx context.Context, keyID, alg string, publicKey []byte, attributes any) ([]byte, error) {
+	attrs, err := json.Marshal(attributes)
+	if err != nil {
+		return nil, err
+	}
 
 	st := &SessionToken{
 		KeyID:      keyID,
 		Alg:        alg,
 		PublicKey:  publicKey,
-		Attributes: attributes,
+		Attributes: attrs,
 	}
 	plaintext, err := json.Marshal(st)
 	if err != nil {
@@ -55,7 +59,7 @@ func (e *BlockEncrypterDecrypter) EncryptPublicKey(ctx context.Context, keyID, a
 	return []byte(resp), nil
 }
 
-func (e *BlockEncrypterDecrypter) DecryptPublicKey(ctx context.Context, content []byte) (keyID, alg string, publicKey []byte, attributes any, err error) {
+func (e *BlockEncrypterDecrypter) DecryptPublicKey(ctx context.Context, content []byte) (keyID, alg string, publicKey []byte, attributes json.RawMessage, err error) {
 	ciphertext, err := base64.StdEncoding.DecodeString(string(content))
 	if err != nil {
 		return "", "", nil, nil, err

@@ -2,15 +2,13 @@ package gh
 
 import (
 	"bytes"
-	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/pem"
 	"testing"
 
-	"github.com/common-fate/httpsig/alg_ecdsa"
-	"github.com/common-fate/httpsig/verifier"
+	"github.com/micahhausler/httpsig"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -20,10 +18,15 @@ func TestGitHubKeySigner(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	verifier, err := httpsig.NewVerifier(httpsig.ECDSAP256SHA256, &priv.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	cases := []struct {
 		name       string
 		privateKey []byte
-		verifier   verifier.Algorithm
+		verifier   httpsig.Verifier
 		wantErr    bool
 	}{
 		{
@@ -34,7 +37,7 @@ func TestGitHubKeySigner(t *testing.T) {
 				pem.Encode(&buf, block)
 				return buf.Bytes()
 			}(),
-			verifier: alg_ecdsa.NewP256Verifier(&priv.PublicKey),
+			verifier: verifier,
 			wantErr:  false,
 		},
 	}
@@ -52,11 +55,11 @@ func TestGitHubKeySigner(t *testing.T) {
 				t.Errorf("wanted error, got none")
 				return
 			}
-			gotSig, err := ghSigner.Sign(context.Background(), "test")
+			gotSig, err := ghSigner.Sign([]byte("test"))
 			if err != nil {
 				t.Error(err)
 			}
-			err = tc.verifier.Verify(context.Background(), "test", gotSig)
+			err = tc.verifier.Verify([]byte("test"), gotSig)
 			if err != nil {
 				t.Error(err)
 			}

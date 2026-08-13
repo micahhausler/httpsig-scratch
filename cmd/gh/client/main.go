@@ -1,18 +1,19 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"time"
 
-	"github.com/common-fate/httpsig"
 	"github.com/micahhausler/httpsig-scratch/cmd"
 	"github.com/micahhausler/httpsig-scratch/gh"
 	"github.com/micahhausler/httpsig-scratch/transport"
+	"github.com/micahhausler/httpsig/client"
+	"github.com/micahhausler/httpsig/sigconfig"
 )
 
 func main() {
@@ -35,27 +36,40 @@ func main() {
 		os.Exit(1)
 	}
 
-	algorithm, err := gh.NewGHSigner(keyData)
+	signer, err := gh.NewGHSigner(keyData)
 	if err != nil {
 		slog.Error("failed to create signer", "error", err)
 		os.Exit(1)
 	}
 
-	client := httpsig.NewClient(httpsig.ClientOpts{
-		KeyID: algorithm.KeyID(),
-		Tag:   "foo",
-		Alg:   algorithm,
-		OnDeriveSigningString: func(ctx context.Context, stringToSign string) {
-			slog.Debug("signing string", "string", stringToSign)
+	profile := sigconfig.SigningProfile{
+		Coverage: sigconfig.Coverage{
+			Components: []string{
+				`"@method"`,
+				`"@target-uri"`,
+				`"content-type"`,
+			},
 		},
-	})
+		KeyID:      signer.KeyID(),
+		Tag:        "foo",
+		TTL:        sigconfig.Duration(5 * time.Minute),
+		Nonce:      true,
+		IncludeAlg: true,
+	}
+	rt, err := client.NewTransport(nil, signer, profile)
+	if err != nil {
+		slog.Error("failed to create signing transport", "error", err)
+		os.Exit(1)
+	}
 
-	client.Transport = transport.NewTransportWithFallbackHeaders(client.Transport, http.Header{
-		"Content-Type": []string{"application/json"},
-	})
+	httpClient := &http.Client{
+		Transport: transport.NewTransportWithFallbackHeaders(rt, http.Header{
+			"Content-Type": []string{"application/json"},
+		}),
+	}
 
 	{
-		res, err := client.Post(addr, "application/json", nil)
+		res, err := httpClient.Post(addr, "application/json", nil)
 		if err != nil {
 			slog.Error("failed to send request", "error", err)
 			os.Exit(1)
@@ -70,7 +84,7 @@ func main() {
 		fmt.Println(string(resBytes))
 	}
 	{
-		res, err := client.Get(addr)
+		res, err := httpClient.Get(addr)
 		if err != nil {
 			slog.Error("failed to send request", "error", err)
 			os.Exit(1)
