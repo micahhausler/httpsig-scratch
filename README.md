@@ -180,6 +180,36 @@ status:
 
 [k8s-auth-proxy]: https://kubernetes.io/docs/reference/access-authn-authz/authentication/#authenticating-proxy
 
+## Example 4: Attested TPM keys
+
+The client creates a signing key inside a TPM and gets it certified by an
+attestation key (AK) in the same TPM with `TPM2_Certify`. The server verifies
+the certification before admitting the key: the key's public area attributes
+(`fixedTPM`, `sensitiveDataOrigin`, `sign`, not `restricted`) prove the
+private key was generated inside the TPM and can never leave it. The keyid
+for HTTP signatures is the key's TPM Name (a digest of its public area), so
+the identifier a signature claims is exactly the object that was attested.
+The username is bound into the attestation as qualifying data.
+
+The AK is trusted on first use. A production deployment anchors the AK to the
+TPM's endorsement key certificate (on AWS, the [NitroTPM][nitrotpm] EK cert)
+with `TPM2_MakeCredential`/`TPM2_ActivateCredential`; that step is out of
+scope here.
+
+```sh
+# terminal 1
+make tpm_server
+
+# terminal 2: uses an embedded software TPM (Microsoft reference
+# implementation; building it needs openssl-devel)
+make tpm_client
+
+# on an EC2 instance launched with --tpm-support v2.0, use the real device
+./bin/tpm_client --tpm-path /dev/tpmrm0
+```
+
+[nitrotpm]: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/nitrotpm.html
+
 ## Notes
 
 This started with https://github.com/common-fate/httpsig, and now uses

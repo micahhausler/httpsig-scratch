@@ -12,8 +12,11 @@ bin/proxy_server:
 bin/kubecon_server:
 	go build -o bin/kubecon_server cmd/kubecon/server/main.go
 
+bin/tpm_server:
+	go build -o bin/tpm_server cmd/tpm/server/main.go
+
 .PHONY: build_server
-build_server: bin/session_server bin/gh_server bin/kubecon_server bin/proxy_server
+build_server: bin/session_server bin/gh_server bin/kubecon_server bin/proxy_server bin/tpm_server
 
 bin/session_client:
 	go build -o bin/session_client cmd/session_token/client/main.go
@@ -27,8 +30,12 @@ bin/proxy_client:
 bin/kubecon_client:
 	go build -o bin/kubecon_client cmd/kubecon/client/main.go
 
+# the embedded software TPM is cgo and needs openssl headers (openssl-devel)
+bin/tpm_client:
+	go build -o bin/tpm_client cmd/tpm/client/main.go
+
 .PHONY: build_client
-build_client: bin/session_client bin/gh_client bin/proxy_client bin/kubecon_client
+build_client: bin/session_client bin/gh_client bin/proxy_client bin/kubecon_client bin/tpm_client
 
 .PHONY: build
 build: build_server build_client
@@ -87,6 +94,18 @@ session_client: bin/session_client keys/id_rsa keys/hmac.key keys/id_ecdsa
 	./bin/session_client \
 		--key ./keys/id_rsa \
 		--key-algo rsa-pss-sha512
+
+### TPM
+
+.PHONY: tpm_server
+tpm_server: bin/tpm_server
+	./bin/tpm_server $(SERVER_ARGS) | jq .
+
+# uses an embedded software TPM by default; pass a real device with
+#   ./bin/tpm_client --tpm-path /dev/tpmrm0
+.PHONY: tpm_client
+tpm_client: bin/tpm_client
+	./bin/tpm_client --username dave
 
 ### GitHub
 
