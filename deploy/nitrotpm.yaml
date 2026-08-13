@@ -1,0 +1,124 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Host for the httpsig-scratch NitroTPM demo: an instance with a real TPM 2.0
+  device, reachable only through SSM, plus a bucket to stage binaries.
+
+  The NitroTPM-enabled AMI is not created here. CloudFormation has no resource
+  for copying an EBS snapshot or registering an image, and Linux has no
+  prebuilt NitroTPM AMI, so the image is registered out of band and passed in
+  as ImageId. See the TPM section of the README.
+
+Parameters:
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Description: An arm64 AMI registered with --tpm-support v2.0 and --boot-mode uefi
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the security group
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet with a route to the SSM endpoints, such as a default public subnet
+  InstanceType:
+    Type: String
+    Default: c7g.medium
+    Description: Must be an instance type that supports NitroTPM
+
+Resources:
+  # Binary staging. Objects are uploaded out of band, so this bucket must be
+  # emptied before the stack can be deleted.
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Project
+          Value: httpsig-scratch
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # grants the SSM agent its channel to Systems Manager
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: read-staged-binaries
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub '${ArtifactBucket.Arn}/*'
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt ArtifactBucket.Arn
+        # For --ek-trust=ec2: the server asks the control plane which
+        # endorsement key an instance should have. Scoped to this instance, so
+        # the server can only anchor enrollments to the machine it runs on.
+        - PolicyName: read-own-endorsement-key
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ec2:GetInstanceTpmEkPub
+                Resource: !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
+                Condition:
+                  StringEquals:
+                    ec2:ResourceTag/Name: httpsig-scratch-nitrotpm
+      Tags:
+        - Key: Project
+          Value: httpsig-scratch
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  # No ingress rules: the demo client and server both run on the instance and
+  # talk over loopback, and all access is through SSM, which is outbound only.
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: httpsig-scratch NitroTPM demo host, no inbound access
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Outbound for SSM and S3
+      Tags:
+        - Key: Project
+          Value: httpsig-scratch
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !GetAtt InstanceSecurityGroup.GroupId
+      MetadataOptions:
+        HttpTokens: required
+      Tags:
+        - Key: Name
+          Value: httpsig-scratch-nitrotpm
+        - Key: Project
+          Value: httpsig-scratch
+
+Outputs:
+  InstanceId:
+    Value: !Ref Instance
+  ArtifactBucket:
+    Value: !Ref ArtifactBucket

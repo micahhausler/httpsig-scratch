@@ -182,33 +182,15 @@ status:
 
 ## Example 4: Attested TPM keys
 
-The client creates a signing key inside a TPM and gets it certified by an
-attestation key (AK) in the same TPM with `TPM2_Certify`. The server verifies
-the certification before admitting the key: the key's public area attributes
-(`fixedTPM`, `sensitiveDataOrigin`, `sign`, not `restricted`) prove the
-private key was generated inside the TPM and can never leave it. The keyid
-for HTTP signatures is the key's TPM Name (a digest of its public area), so
-the identifier a signature claims is exactly the object that was attested.
-The username is bound into the attestation as qualifying data.
+A signing key created inside a TPM, which the server admits only after the TPM
+attests that the private key was generated there and can never leave. Credential
+activation against the endorsement key ties that key to a specific machine, so
+the identity a verified request carries is the machine itself, not a name the
+client chose. The keyid is the key's TPM Name, so the identifier a signature
+claims is exactly the object that was attested.
 
-The AK is trusted on first use. A production deployment anchors the AK to the
-TPM's endorsement key certificate (on AWS, the [NitroTPM][nitrotpm] EK cert)
-with `TPM2_MakeCredential`/`TPM2_ActivateCredential`; that step is out of
-scope here.
-
-```sh
-# terminal 1
-make tpm_server
-
-# terminal 2: uses an embedded software TPM (Microsoft reference
-# implementation; building it needs openssl-devel)
-make tpm_client
-
-# on an EC2 instance launched with --tpm-support v2.0, use the real device
-./bin/tpm_client --tpm-path /dev/tpmrm0
-```
-
-[nitrotpm]: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/nitrotpm.html
+Runs against an embedded software TPM locally, or a real NitroTPM device on an
+EC2 instance. See [cmd/tpm/README.md](./cmd/tpm/README.md).
 
 ## Notes
 
@@ -236,3 +218,12 @@ Tasks:
   - [ ] Define a signature input format for the client, including algo that can be read from kubeconfig
     - [x] serializable signature input format: `sigconfig.SigningProfile`
     - [ ] read the profile from kubeconfig
+- [x] Attested TPM keys
+  - [x] Sign requests with a TPM-resident key, certified by an attestation key
+  - [x] Run against real NitroTPM hardware
+  - [x] Anchor the attestation key to an endorsement key, so the server knows which TPM signed
+    - [x] EK credential activation, which needs no cloud and works on any TPM
+    - [x] pinned EK trust, for a host that is not an EC2 instance
+    - [x] `ec2` trust, resolving the EK against `GetInstanceTpmEkPub`
+  - [ ] Measured boot: attest what the machine booted, not only where the key lives
+- [ ] Nonce replay tracking: the library leaves replay storage to the application

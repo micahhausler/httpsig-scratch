@@ -3,57 +3,163 @@ package tpm
 import (
 	"bytes"
 	"crypto/ecdsa"
-	"crypto/sha256"
+	"crypto/rand"
+	"crypto/subtle"
 	"fmt"
-	"math/big"
 
+	legacy "github.com/google/go-tpm/legacy/tpm2"
+	"github.com/google/go-tpm/legacy/tpm2/credactivation"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/micahhausler/httpsig"
 )
 
-// VerifyEnrollment checks that an enrollment's application key was certified
-// by its AK as resident in the same TPM with the expected properties, and
-// returns an httpsig verifier for the key plus its keyid (the hex TPM Name).
-//
-// The AK itself is trusted on first use; anchoring it to an endorsement key
-// certificate is out of scope here.
-func VerifyEnrollment(e *Enrollment) (httpsig.Verifier, string, error) {
-	akPub, err := publicContents(e.AKPublic)
+// secretLen is the size of the credential activation secret. 32 bytes is the
+// longest digest the TPM will carry in a credential.
+const secretLen = 32
+
+// challenge is what the server must remember between the two rounds of an
+// enrollment.
+type challenge struct {
+	identity Identity
+	// akVerifier checks the certification signature in round two. Holding
+	// the verifier rather than the public area means the AK the certify is
+	// checked against is necessarily the one the activation was bound to.
+	akVerifier httpsig.Verifier
+	secret     []byte
+	nonce      []byte
+}
+
+// newChallenge verifies that an endorsement key is trusted and that the
+// attestation key is fit to attest, then wraps a fresh secret so that only the
+// TPM holding that endorsement key can recover it, and only while that
+// attestation key is loaded.
+func newChallenge(identity Identity, ekPublic, akPublic []byte) (*challenge, *ChallengeResponse, error) {
+	ekPub, err := publicContents(ekPublic)
 	if err != nil {
-		return nil, "", fmt.Errorf("bad ak_public: %w", err)
+		return nil, nil, fmt.Errorf("bad ek_public: %w", err)
 	}
-	keyPub, err := publicContents(e.KeyPublic)
+	akPub, err := publicContents(akPublic)
+	if err != nil {
+		return nil, nil, fmt.Errorf("bad ak_public: %w", err)
+	}
+
+	// The endorsement key must be a restricted decryption key fixed to its
+	// TPM, or it is not an EK and activation would prove nothing.
+	ekAttrs := ekPub.ObjectAttributes
+	if !ekAttrs.Restricted || !ekAttrs.Decrypt || !ekAttrs.FixedTPM || !ekAttrs.SensitiveDataOrigin {
+		return nil, nil, fmt.Errorf("endorsement key is not a restricted TPM-resident decryption key")
+	}
+	if ekPub.Type != tpm2.TPMAlgRSA {
+		return nil, nil, fmt.Errorf("only RSA endorsement keys are supported")
+	}
+	rsaDetail, err := ekPub.Parameters.RSADetail()
+	if err != nil {
+		return nil, nil, fmt.Errorf("bad ek parameters: %w", err)
+	}
+	rsaUnique, err := ekPub.Unique.RSA()
+	if err != nil {
+		return nil, nil, fmt.Errorf("bad ek public key: %w", err)
+	}
+	ekKey, err := tpm2.RSAPub(rsaDetail, rsaUnique)
+	if err != nil {
+		return nil, nil, fmt.Errorf("bad ek public key: %w", err)
+	}
+
+	// The attestation key must be restricted, so that its signature can only
+	// ever cover structures the TPM generated.
+	akAttrs := akPub.ObjectAttributes
+	if !akAttrs.Restricted || !akAttrs.SignEncrypt || !akAttrs.FixedTPM || !akAttrs.SensitiveDataOrigin {
+		return nil, nil, fmt.Errorf("attestation key is not a restricted TPM-resident signing key")
+	}
+	akKey, err := eccPubKey(akPub)
+	if err != nil {
+		return nil, nil, fmt.Errorf("bad ak public key: %w", err)
+	}
+	akVerifier, err := httpsig.NewVerifier(httpsig.ECDSAP256SHA256, akKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	akName, err := tpm2.ObjectName(akPub)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to compute ak name: %w", err)
+	}
+	akDigest, err := nameDigest(*akName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("bad ak name: %w", err)
+	}
+
+	secret := make([]byte, secretLen)
+	if _, err := rand.Read(secret); err != nil {
+		return nil, nil, err
+	}
+	nonce := make([]byte, 32)
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, nil, err
+	}
+
+	// Credential protection binds the secret to the AK's name, so the TPM
+	// will only release it while that exact object is loaded. Done in
+	// software here: the server needs no TPM of its own.
+	blob, encSecret, err := credactivation.Generate(
+		&legacy.HashValue{Alg: legacy.AlgSHA256, Value: akDigest},
+		ekKey,
+		16, // AES-128 block size, per the reference EK template's symmetric alg
+		secret,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to generate credential: %w", err)
+	}
+
+	// credactivation returns each blob with a two-byte length prefix, and the
+	// command structures add their own, so the prefixes come off here.
+	blob, err = stripU16Prefix(blob)
+	if err != nil {
+		return nil, nil, fmt.Errorf("bad credential blob: %w", err)
+	}
+	encSecret, err = stripU16Prefix(encSecret)
+	if err != nil {
+		return nil, nil, fmt.Errorf("bad encrypted secret: %w", err)
+	}
+
+	return &challenge{
+			identity:   identity,
+			akVerifier: akVerifier,
+			secret:     secret,
+			nonce:      nonce,
+		}, &ChallengeResponse{
+			CredentialBlob:  blob,
+			EncryptedSecret: encSecret,
+			Nonce:           nonce,
+		}, nil
+}
+
+// verifyEnrollment completes an enrollment against its challenge, returning a
+// verifier for the application signing key and the key's TPM Name as its keyid.
+//
+// What has to hold: the client recovered the activation secret, which only the
+// endorsement key's TPM could do; the attestation key that certified the
+// signing key is the one that activation was bound to; the certification names
+// this signing key and carries this challenge's nonce; and the signing key's
+// attributes say the TPM generated it and will not let it leave.
+func verifyEnrollment(c *challenge, req *EnrollRequest) (httpsig.Verifier, string, error) {
+	if subtle.ConstantTimeCompare(c.secret, req.Secret) != 1 {
+		return nil, "", fmt.Errorf("activation secret does not match")
+	}
+
+	keyPub, err := publicContents(req.KeyPublic)
 	if err != nil {
 		return nil, "", fmt.Errorf("bad key_public: %w", err)
 	}
 
-	// The AK must be a restricted, TPM-resident signing key: a restricted
-	// key only signs TPM-generated structures, so its signature over the
-	// attestation below cannot have been forged from arbitrary data.
-	akAttrs := akPub.ObjectAttributes
-	if !akAttrs.Restricted || !akAttrs.SignEncrypt || !akAttrs.FixedTPM || !akAttrs.SensitiveDataOrigin {
-		return nil, "", fmt.Errorf("ak is not a restricted TPM-resident signing key")
+	if len(req.CertifySignature) != 64 {
+		return nil, "", fmt.Errorf("certify signature must be 64 bytes, got %d", len(req.CertifySignature))
 	}
-	akKey, err := eccPubKey(akPub)
-	if err != nil {
-		return nil, "", fmt.Errorf("bad ak public key: %w", err)
+	if err := c.akVerifier.Verify(req.CertifyAttest, req.CertifySignature); err != nil {
+		return nil, "", fmt.Errorf("certify signature does not verify against ak: %w", err)
 	}
 
-	// Verify the AK's signature over the attestation bytes.
-	if len(e.CertifySignature) != 64 {
-		return nil, "", fmt.Errorf("certify signature must be 64 bytes, got %d", len(e.CertifySignature))
-	}
-	digest := sha256.Sum256(e.CertifyAttest)
-	r := new(big.Int).SetBytes(e.CertifySignature[:32])
-	s := new(big.Int).SetBytes(e.CertifySignature[32:])
-	if !ecdsa.Verify(akKey, digest[:], r, s) {
-		return nil, "", fmt.Errorf("certify signature does not verify against ak")
-	}
-
-	// Parse the attestation and check it certifies exactly the enrolled key:
-	// the attested Name is a digest of the key's whole public area, so the
-	// properties checked below are covered by the AK's signature.
-	attest, err := tpm2.Unmarshal[tpm2.TPMSAttest](e.CertifyAttest)
+	attest, err := tpm2.Unmarshal[tpm2.TPMSAttest](req.CertifyAttest)
 	if err != nil {
 		return nil, "", fmt.Errorf("bad certify_attest: %w", err)
 	}
@@ -71,17 +177,10 @@ func VerifyEnrollment(e *Enrollment) (httpsig.Verifier, string, error) {
 	if !bytes.Equal(certInfo.Name.Buffer, keyName.Buffer) {
 		return nil, "", fmt.Errorf("attestation certifies a different key")
 	}
-
-	// The qualifying data binds the enrollment's claimed username into the
-	// signed attestation.
-	wantExtra := sha256.Sum256([]byte(e.Username))
-	if !bytes.Equal(attest.ExtraData.Buffer, wantExtra[:]) {
-		return nil, "", fmt.Errorf("attestation qualifying data does not match username")
+	if !bytes.Equal(attest.ExtraData.Buffer, c.nonce) {
+		return nil, "", fmt.Errorf("attestation is not bound to this challenge")
 	}
 
-	// The application key must be TPM-generated and TPM-bound (its private
-	// half never existed outside the TPM), and unrestricted so it may sign
-	// HTTP signature bases.
 	keyAttrs := keyPub.ObjectAttributes
 	if !keyAttrs.FixedTPM || !keyAttrs.SensitiveDataOrigin || !keyAttrs.SignEncrypt {
 		return nil, "", fmt.Errorf("signing key is not a TPM-resident signing key")
@@ -101,12 +200,21 @@ func VerifyEnrollment(e *Enrollment) (httpsig.Verifier, string, error) {
 	return verifier, fmt.Sprintf("%x", keyName.Buffer), nil
 }
 
-func publicContents(tpm2bPublic []byte) (*tpm2.TPMTPublic, error) {
-	pub2B, err := tpm2.Unmarshal[tpm2.TPM2BPublic](tpm2bPublic)
-	if err != nil {
-		return nil, err
+func stripU16Prefix(b []byte) ([]byte, error) {
+	if len(b) < 2 {
+		return nil, fmt.Errorf("too short to hold a length prefix")
 	}
-	return pub2B.Contents()
+	n := int(b[0])<<8 | int(b[1])
+	if n != len(b)-2 {
+		return nil, fmt.Errorf("length prefix says %d bytes, got %d", n, len(b)-2)
+	}
+	return b[2:], nil
+}
+
+func publicContents(tpmtPublic []byte) (*tpm2.TPMTPublic, error) {
+	// Marshalled with tpm2.Marshal on a TPMTPublic, so there is no TPM2B
+	// wrapper to strip.
+	return tpm2.Unmarshal[tpm2.TPMTPublic](tpmtPublic)
 }
 
 func eccPubKey(pub *tpm2.TPMTPublic) (*ecdsa.PublicKey, error) {

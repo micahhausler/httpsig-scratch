@@ -2,6 +2,7 @@
 cover.out
 .vscode/
 bin/
+dist/
 
 keys/
 id_rsa

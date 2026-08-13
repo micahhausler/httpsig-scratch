@@ -13,7 +13,7 @@ bin/kubecon_server:
 	go build -o bin/kubecon_server cmd/kubecon/server/main.go
 
 bin/tpm_server:
-	go build -o bin/tpm_server cmd/tpm/server/main.go
+	go build -o bin/tpm_server ./cmd/tpm/server
 
 .PHONY: build_server
 build_server: bin/session_server bin/gh_server bin/kubecon_server bin/proxy_server bin/tpm_server
@@ -30,9 +30,18 @@ bin/proxy_client:
 bin/kubecon_client:
 	go build -o bin/kubecon_client cmd/kubecon/client/main.go
 
-# the embedded software TPM is cgo and needs openssl headers (openssl-devel)
+# the embedded software TPM is cgo and needs openssl headers (openssl-devel).
+# built as a package, not a file list, so the build-tagged files are included
 bin/tpm_client:
-	go build -o bin/tpm_client cmd/tpm/client/main.go
+	go build -tags tpmsim -o bin/tpm_client ./cmd/tpm/client
+
+# static device-only binaries for a host with a real TPM, such as a NitroTPM
+# instance. No simulator, so no cgo and no libcrypto at runtime.
+.PHONY: tpm_dist
+tpm_dist:
+	mkdir -p dist
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o dist/tpm_server ./cmd/tpm/server
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o dist/tpm_client ./cmd/tpm/client
 
 .PHONY: build_client
 build_client: bin/session_client bin/gh_client bin/proxy_client bin/kubecon_client bin/tpm_client
@@ -97,15 +106,19 @@ session_client: bin/session_client keys/id_rsa keys/hmac.key keys/id_ecdsa
 
 ### TPM
 
+# accepts any endorsement key, so it needs no pin file. For the trust path a
+# real deployment uses, pin one:
+#   ./bin/tpm_client --print-ek > keys/ek.json
+#   ./bin/tpm_server --ek-trust pinned --ek-file keys/ek.json
 .PHONY: tpm_server
 tpm_server: bin/tpm_server
-	./bin/tpm_server $(SERVER_ARGS) | jq .
+	./bin/tpm_server $(SERVER_ARGS) --ek-trust insecure-tofu | jq .
 
 # uses an embedded software TPM by default; pass a real device with
 #   ./bin/tpm_client --tpm-path /dev/tpmrm0
 .PHONY: tpm_client
 tpm_client: bin/tpm_client
-	./bin/tpm_client --username dave
+	./bin/tpm_client
 
 ### GitHub
 
